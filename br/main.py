@@ -34,6 +34,10 @@ STATE_FILE = os.path.join(os.path.dirname(MAP), "state.bin")
 STATE_MIN_TESTS = 25
 STATE_MIN_COST = 1.0
 SLICE = os.environ.get("BR_SLICE", "0") == "1"  # run tests by statement where the map allows
+# Experiment build only (branch exp-level, never the final): run every runnable candidate
+# of commits that change class- or module-level statements, so the scorer's numbers show
+# whether the practice set's unverified cost sits in that kind of change.
+EXP_LEVEL = os.environ.get("BR_EXP_LEVEL", "1") == "1"
 
 
 def log(*args):
@@ -177,7 +181,8 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
     return {"key": commit, "root": SOURCE, "files": files, "pickle": analysis.pickle,
             "prior": prior, "tests": tests_spec, "expensive": expensive,
             "forced": maps.numbers(analysis.direct), "plans": plans,
-            "speed": SPEED, "budget": 40.0, "run_all": RUN_ALL}
+            "speed": SPEED, "budget": 40.0,
+            "run_all": RUN_ALL or (EXP_LEVEL and analysis.body_units > 0)}
 
 
 def refine(plans, texts, analyzer, maps, cost_of, seconds, started, count):
@@ -319,7 +324,7 @@ def main():
 
         try:
             verdicts = run_guarded(jobs, width, deadline, preload, log, warm=WARM,
-                                   adapt=policy.ADAPT and not os.environ.get("BR_SPEED"))
+                                   adapt=policy.ADAPT)
             if len(verdicts) <= 1 and len(preload) > 2:
                 # Nothing came back: a shared library may not load here. Let each
                 # child load what it needs on its own instead.
