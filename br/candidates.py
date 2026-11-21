@@ -32,6 +32,8 @@ class Analysis:
         self.notes = []
         self.units = []           # (path, kind, first, last)
         self.changed_fixtures = {}  # fixture name -> tests that read the patched file
+        self.body_units = 0       # class- or module-level changes in sqlglot
+        self.deferred = 0         # ... of which left to the state comparison
 
     @property
     def data_only(self):
@@ -57,6 +59,7 @@ class Analyzer:
         self.root = source_root
         self._text = {}
         self._tree = {}
+        self._state = None
         self._refs_path = refs_path
         self._refs = None
         self._subclasses = {}
@@ -132,9 +135,76 @@ class Analyzer:
 
     # ---- whole patch -----------------------------------------------------
 
-    def analyze(self, patch_text):
+    def state_tags(self, result, changed_modules=()):
+        """Turn a state comparison (see state.py) into the recorded reads that can
+        notice it: a list of read tags, or None when some difference is of a kind
+        the map does not follow and the older rules must decide."""
+        maps = self.maps
+        if not result or result.get("error") or result.get("truncated") or not maps.tracked:
+            return None
+        tags = set()
+
+        def entry(key, marks):
+            """A class-level value or one entry of a class-level dict."""
+            if "\t" in key or "|" not in key:
+                return False      # a module-level name: reads of those are not recorded
+            parts = key.split("|")
+            holder = parts[0] + "|" + parts[1]
+            holder = maps.shared.get(holder, holder)
+            if holder not in maps.tracked:
+                return False
+            if len(parts) == 2:
+                tags.add(holder)
+            else:
+                name = "|".join(parts[2:])
+                for mark in marks:
+                    tags.add(holder + "|" + (name if mark == "key" else mark))
+            return True
+
+        for key in result.get("changed") or ():
+            if key.endswith("\tcode"):
+                base = key[:-5]
+                if base.count("|") >= 2:
+                    # A function stored as a dict entry: whoever fetches the entry.
+                    if not entry(base, ("key", "*")):
+                        return None
+                # Otherwise a function whose own source changed: line coverage has it.
+                continue
+            if not entry(key, ("key", "*")):
+                return None
+        for key in result.get("removed") or ():
+            if key.endswith("\tcode"):
+                key = key[:-5]
+            if key.count("|") < 2 or not entry(key, ("key", "#", "*")):
+                return None
+        for key in result.get("added") or ():
+            if key.endswith("\tcode"):
+                key = key[:-5]
+            if key.count("|") < 2 or not entry(key, ("!", "#", "*")):
+                return None
+        if not tags:
+            return None       # nothing visible changed: do not conclude from silence
+        return sorted(tags)
+
+    def _apply_state(self, a, tags):
+        maps = self.maps
+        tests = 0
+        for tag in tags:
+            key = maps.reads.get(tag)
+            if key is not None:
+                tests |= maps.mask(key)
+        a.strong |= tests
+        a.loose |= tests      # the map does not say where outside a case it is read
+        a.specs.append(("reads", list(tags), None, 0))
+        a.notes.append(f"state:{len(tags)} names")
+
+    def analyze(self, patch_text, state=None):
+        """state: read tags from state_tags(), when the patched code was loaded and
+        compared with the pinned commit. Class- and module-level changes in sqlglot
+        are then judged by who reads the values that came out different."""
         maps = self.maps
         a = Analysis()
+        self._state = state
         for fp in patchlib.parse(patch_text):
             paths = [p for p in {fp.old_path, fp.new_path} if p]
             if any(os.path.basename(p) in ("conftest.py", "pytest.ini", "tox.ini") for p in paths):
@@ -190,6 +260,8 @@ class Analyzer:
                 a.data_changed.append((old_path, new_text))
                 continue
             self._python(a, fp)
+        if state is not None and a.deferred:
+            self._apply_state(a, state)
         return a
 
     def _loaders(self, path):
@@ -353,6 +425,15 @@ class Analyzer:
         key, is_lambda, first, last = entry
         if new_table is None or new_table[0] != name:
             return False
+        if not is_lambda and path.startswith("sqlglot/"):
+            a.body_units += 1
+            if self._state is not None:
+                statement = units.statement_at(self.tree(path), dict_node.lineno)
+                stmt_first = statement.lineno if statement is not None else dict_node.lineno
+                self._tables_done.add((stmt_first, dict_node.end_lineno))
+                a.deferred += 1
+                a.units.append((path, "state", first, last))
+                return True
         old_keys = units.table_keys(dict_node)
         new_keys = units.table_keys(new_table[1])
         if set(k for k in new_keys if k is not None) - set(k for k in old_keys if k is not None):
@@ -392,7 +473,11 @@ class Analyzer:
         a.units.append((path, kind, first, last))
         if kind == "func":
             self._function_unit(a, path, first, last)
+        elif self._state is not None and path.startswith("sqlglot/"):
+            a.deferred += 1
         else:
+            if path.startswith("sqlglot/"):
+                a.body_units += 1
             self._body_unit(a, path, first, last, classes, names)
 
     # ---- one unit ---------------------------------------------------------
@@ -517,6 +602,20 @@ class Analyzer:
         entry = self.maps.cases(bit_index)
         if entry is None:
             return None
+        # A changed function that this test ran while a module was loading shapes
+        # everything the test does afterwards, not only the case or statement that
+        # happened to trigger the load.
+        load = self.maps.load
+        for kind, what, _, _ in a.specs:
+            if kind == "reads":
+                # A value is often read once and kept (a generator copies its table of
+                # transforms the first time its class is used): the case that happened
+                # to read it is not the only one that depends on it.
+                return None
+            if kind == "lines":
+                for path, first, last in what:
+                    if (self.maps.lines(load, path, first, last) >> bit_index) & 1:
+                        return None
         for fixture, readers in a.changed_fixtures.items():
             if (readers >> bit_index) & 1 and fixture not in entry:
                 return None  # reads the patched file some other way than case by case

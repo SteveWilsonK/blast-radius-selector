@@ -13,8 +13,10 @@ RUN python /app/tools/fetch_sqlglot.py /opt/sqlglot
 
 COPY br /app/br
 COPY maps/map.bin maps/refs.bin maps/cond.bin /app/maps/
-# The disk is read-only at run time: compile everything now.
+# The disk is read-only at run time: compile everything now. Then take a fingerprint
+# of everything the pinned sqlglot holds once loaded, to compare patched code against.
 RUN python -m compileall -q /app/br /opt/sqlglot/sqlglot /opt/sqlglot/tests \
+    && cd /app && python -m br.state /opt/sqlglot /app/maps/state.bin \
     && chmod -R a+rX /app /opt/sqlglot
 
 ENV PYTHONDONTWRITEBYTECODE=1

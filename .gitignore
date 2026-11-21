@@ -1,3 +1,4 @@
 output.jsonl
 __pycache__/
 *.pyc
+maps/state.bin

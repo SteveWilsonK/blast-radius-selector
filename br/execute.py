@@ -70,7 +70,8 @@ def run_guarded(jobs, parallel, deadline, preload, log=lambda *a: None, warm=())
         for line in lines:
             if line:
                 key, verdicts, stats = json.loads(line)
-                results[key] = {int(n): tuple(v) for n, v in verdicts.items()}
+                results[key] = {(int(n) if n.isdigit() else n): tuple(v)
+                                for n, v in verdicts.items()}
                 if stats:
                     results["_stats"][key] = tuple(stats)
     os.close(r)
@@ -113,7 +114,7 @@ def run_jobs(jobs, parallel=2, log=lambda *a: None, on_done=None):
                     os.close(r)
                     for fd in list(active):
                         os.close(fd)
-                    child.run(job, w)
+                    (child.run_state if job.get("state") else child.run)(job, w)
                 except BaseException:  # noqa: BLE001
                     code = 1
                 finally:

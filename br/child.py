@@ -75,6 +75,47 @@ def _alarm(signum, frame):
     raise TestTimeout()
 
 
+def run_state(job, out_fd):
+    """Load every sqlglot module with the patch applied and report which loaded
+    names differ from the pinned commit (see state.py). Writes one line:
+    ["state", {changed, added, removed, truncated} or {error}, cpu]."""
+    out = os.fdopen(out_fd, "w", buffering=1)
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    os.dup2(devnull, 1)
+    os.dup2(devnull, 2)
+    started = time.process_time()
+    try:
+        root = job["root"]
+        os.chdir(root)
+        if root not in sys.path:
+            sys.path.insert(0, root)
+        from . import overlay, state
+
+        for name in list(sys.modules):
+            if name in ("sqlglot", "tests") or name.startswith(("sqlglot.", "tests.")):
+                del sys.modules[name]
+        overlay.install(root, job["files"])
+        signal.signal(signal.SIGPROF, _alarm)
+        signal.setitimer(signal.ITIMER_PROF, 8.0 * job.get("speed", 1.0))
+        sys.setrecursionlimit(20000)
+        pinned = state.load(job["state_path"])
+        state.load_everything()
+        table, cut = state.fingerprint()
+        signal.setitimer(signal.ITIMER_PROF, 0)
+        skip = set(pinned.get("unstable") or ())
+        changed, added, removed = state.compare(
+            pinned["table"], {k: v for k, v in table.items() if k not in skip})
+        result = {"changed": changed, "added": added, "removed": removed,
+                  "truncated": bool(cut or pinned.get("truncated"))}
+    except BaseException as error:  # noqa: BLE001 - the patched code may not even load
+        result = {"error": repr(error)[:200]}
+    cpu = round(time.process_time() - started, 3)
+    out.write(json.dumps(["state", result, cpu]) + "\n")
+    out.write(json.dumps(["cpu", cpu, 0.0]) + "\n")
+    out.write("done\n")
+    out.flush()
+
+
 def run(job, out_fd):
     """job: dict(root, files, pickle, expensive=[(number, recorded)], speed, budget,
     tests=[(number, id, limit, recorded, run_cost, cases, part)]).
@@ -139,7 +180,8 @@ def run(job, out_fd):
                     if cases is None:
                         yield from original(filename)
                         return
-                    allowed = cases.get(filename, ())
+                    # A test cut down by statement (see slicer) loads fixtures in full.
+                    allowed = cases.get(filename, None if "@body" in cases else ())
                     if allowed is None:
                         yield from original(filename)
                         return
@@ -223,11 +265,32 @@ def run(job, out_fd):
             for number, _, _ in items:
                 out.write(json.dumps([number, 1, 0.0]) + "\n")
             continue
+        if path not in job["files"]:
+            # Tests that only need some statements of their body get a shortened body.
+            lines = None
+            for number, method, _ in items:
+                wanted = (case_filter[number] or {}).get("@body")
+                plan = (job.get("plans") or {}).get(str(number))
+                if wanted is None or plan is None:
+                    continue
+                try:
+                    from . import slicer
+
+                    if lines is None:
+                        with overlay.original():
+                            with open(os.path.join(root, path), encoding="utf-8") as handle:
+                                lines = handle.readlines()
+                    setattr(cls, method, slicer.build(
+                        plan, set(wanted), lines, cls_name, method,
+                        os.path.join(root, path), module.__dict__))
+                except BaseException:  # noqa: BLE001 - cannot shorten: the test runs whole
+                    pass
         # While class fixtures load, allow every case any test of this group needs.
         union = {}
         for number, _, _ in items:
             cases = case_filter[number]
-            if cases is None:
+            if cases is None or "@body" in cases:
+                # Whole tests, and tests cut down by statement, read fixtures in full.
                 union = None
                 break
             for fixture, allowed in cases.items():

@@ -3,15 +3,41 @@ import pickle
 import zlib
 
 
+class _Reads:
+    """Per-test table of recorded reads: tag -> key of the set of cases reading it."""
+
+    def __init__(self, packed, ids):
+        import array
+
+        a, b = array.array("I"), array.array("I")
+        a.frombytes(packed[0])
+        b.frombytes(packed[1])
+        self._table = dict(zip(a, b))
+        self._ids = ids
+
+    def get(self, tag, default=None):
+        number = self._ids.get(tag)
+        return default if number is None else self._table.get(number, default)
+
+    def __bool__(self):
+        return True
+
+
 class Maps:
     def __init__(self, path, tests):
         data = pickle.loads(zlib.decompress(open(path, "rb").read()))
         self.ids = data["ids"]
-        for name in ("run", "loose", "imp", "pick", "pick_case", "run_body", "imp_body", "opened",
+        for name in ("run", "loose", "imp", "pick", "pick_case", "run_body", "imp_body", "load", "opened",
                      "imported", "dirs", "classes", "loose_classes", "dialects",
-                     "loose_dialects", "families", "mro", "wires", "self_import"):
+                     "loose_dialects", "families", "mro", "wires", "self_import", "reads"):
             setattr(self, name, data.get(name) or {})
+        # Without the "load" table the map cannot tell which functions ran while a
+        # module loaded, so nothing may be narrowed below the whole test on line evidence.
+        self.has_load = "load" in data
         self.wired = frozenset(data.get("wired") or ())
+        self.tracked = frozenset(data.get("tracked") or ())   # values whose reads are recorded
+        self.shared = data.get("shared") or {}
+        self.read_ids = data.get("read_ids") or {}
         self.self_dialects = frozenset(data.get("self_dialects") or ())
         self._cases = data.get("cases") or {}
         self._case_cache = {}
@@ -30,6 +56,21 @@ class Maps:
         if entry is False:
             blob = self._cases.get(bit_index)
             entry = pickle.loads(zlib.decompress(blob)) if blob is not None else None
+            for data in (entry or {}).values():
+                packed = data.pop("reads_packed", None)
+                if packed is not None:
+                    data["reads"] = _Reads(packed, self.read_ids)
+            body = entry.get("@body") if entry else None
+            if body is not None and "lines" not in body:
+                import array
+
+                lines = {}
+                for path, (numbers, keys) in body["packed"].items():
+                    a, b = array.array("I"), array.array("I")
+                    a.frombytes(numbers)
+                    b.frombytes(keys)
+                    lines[path] = dict(zip(a, b))
+                body["lines"] = lines
             self._case_cache[bit_index] = entry
         return entry
 
