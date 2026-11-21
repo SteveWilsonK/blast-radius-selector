@@ -64,16 +64,30 @@ class _Module:
 
 def install(module, cls, load_rows):
     """Defer the duckdb work of cls.setUpClass; with load_rows False, also leave the
-    row tables that only the TPC execution tests read empty."""
-    state = {"setup": False}
+    row tables that only the TPC execution tests read empty.
+
+    Safe to call again for the same class (it is set up once per group of tests):
+    every call wraps the class's own setUpClass afresh, never an earlier wrapper.
+    """
     real = getattr(module, "duckdb", None)
-    if real is not None and not isinstance(real, _Module):
-        module.duckdb = _Module(real, state)
-    original = cls.__dict__.get("setUpClass")
-    if original is None or not hasattr(original, "__func__"):
-        return
+    if isinstance(real, _Module):
+        state = real.__dict__["_state"]
+    else:
+        state = {"setup": False}
+        if real is not None:
+            module.duckdb = _Module(real, state)
+    original = cls.__dict__.get("_br_set_up_class")
+    if original is None:
+        original = cls.__dict__.get("setUpClass")
+        if original is None or not hasattr(original, "__func__"):
+            return
+        cls._br_set_up_class = original
     function = original.__func__
-    opener = getattr(module, "open_file", None)
+    opener = module.__dict__.get("_br_open_file")
+    if opener is None:
+        opener = getattr(module, "open_file", None)
+        if opener is not None:
+            module._br_open_file = opener
 
     def set_up(klass):
         state["setup"] = True

@@ -19,12 +19,13 @@ from br.maps import Maps  # noqa: E402
 harness = sys.argv[1]
 parallel = int(sys.argv[2]) if len(sys.argv) > 2 else 4
 costly = float(sys.argv[3]) if len(sys.argv) > 3 else 0.4
+OUT = sys.argv[4] if len(sys.argv) > 4 else "tail"
 tests = json.load(open(os.path.join(harness, "tests.json")))["tests"]
 seconds = {t["number"]: t["seconds"] for t in tests}
 id_of = {t["number"]: t["id"] for t in tests}
 maps = Maps("/app/maps/map.bin", tests)
 analyzer = Analyzer(maps, selector.SOURCE, "/app/maps/refs.bin")
-os.makedirs(os.path.join(harness, "tail"), exist_ok=True)
+os.makedirs(os.path.join(harness, OUT), exist_ok=True)
 
 import unittest  # noqa: E402,F401
 import unittest.mock  # noqa: E402,F401
@@ -36,7 +37,7 @@ import pandas.testing  # noqa: E402,F401
 jobs = []
 for name in sorted(os.listdir(os.path.join(harness, "commits"))):
     commit = name[:-6]
-    if os.path.exists(os.path.join(harness, "tail", commit + ".json")):
+    if os.path.exists(os.path.join(harness, OUT, commit + ".json")):
         continue
     analysis = analyzer.analyze(open(os.path.join(harness, "commits", name), encoding="utf-8").read())
     files = dict(analysis.py_changed)
@@ -62,7 +63,7 @@ def done(key, verdicts, stats):
     out = {"tests": [[t[0], id_of[t[0]], round(t[4], 3), verdicts.get(t[0], (3, 0))[0],
                       verdicts.get(t[0], (3, 0))[1]] for t in job["tests"]],
            "direct": job["direct"]}
-    json.dump(out, open(os.path.join(harness, "tail", key + ".json"), "w"))
+    json.dump(out, open(os.path.join(harness, OUT, key + ".json"), "w"))
 
 
 run_jobs(jobs, parallel=parallel, on_done=done)

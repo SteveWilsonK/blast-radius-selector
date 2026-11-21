@@ -9,6 +9,7 @@ import unittest
 
 
 ROW_READERS = ("test_execute_tpch", "test_execute_tpcds")
+DEBUG_FILE = os.environ.get("BR_FAILURES")  # development only: where to write tracebacks
 # CPU seconds allowed for loading a test file plus its class set-up.
 PHASE_LIMIT = 10.0
 
@@ -40,9 +41,18 @@ class _Result(unittest.TestResult):
 
     def addError(self, test, err):
         self._mark(test)
+        self._note(test, err)
 
     def addFailure(self, test, err):
         self._mark(test)
+        self._note(test, err)
+
+    def _note(self, test, err):
+        if DEBUG_FILE and err:
+            import traceback
+
+            with open(DEBUG_FILE, "a") as handle:
+                handle.write(f"== {test}\n" + "".join(traceback.format_exception(*err))[-1800:] + "\n")
 
     def addUnexpectedSuccess(self, test):
         self._mark(test)
@@ -50,6 +60,7 @@ class _Result(unittest.TestResult):
     def addSubTest(self, test, subtest, err):
         if err is not None:
             self._mark(test)
+            self._note(subtest, err)
 
 
 _timeouts = [0]

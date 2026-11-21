@@ -23,7 +23,9 @@ def on_line(code, line):
 
 sys.monitoring.use_tool_id(TOOL, "self-import")
 sys.monitoring.register_callback(TOOL, sys.monitoring.events.LINE, on_line)
-sys.monitoring.set_events(TOOL, sys.monitoring.events.LINE)
+sys.monitoring.register_callback(TOOL, sys.monitoring.events.PY_START,
+                                 lambda code, offset: on_line(code, code.co_firstlineno))
+sys.monitoring.set_events(TOOL, sys.monitoring.events.LINE | sys.monitoring.events.PY_START)
 
 import sqlglot  # noqa: E402
 from sqlglot.dialects.dialect import Dialect  # noqa: E402

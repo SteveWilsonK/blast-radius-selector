@@ -21,6 +21,7 @@ class Analysis:
     def __init__(self):
         self.strong = 0
         self.direct = 0           # tests that read a patched file: affected for certain
+        self.loose = 0            # tests whose own code (outside fixture cases) meets the change
         self.whole = 0
         self.specs = []
         self.everything = False
@@ -317,18 +318,25 @@ class Analyzer:
         statement = units.statement_at(self.tree(path), dict_node.lineno)
         stmt_first = statement.lineno if statement is not None else dict_node.lineno
         self._tables_done.add((stmt_first, dict_node.end_lineno))
+        tag = f"{module_of(path)}:{'.'.join(classes)}|{name}|{key}"
         if is_lambda:
-            # The entry is the lambda itself: the tests that call it.
+            # The entry is the lambda itself: the tests that call it, by its lines
+            # and by the record of calls through the table.
             a.units.append((path, "func", first, last))
             self._function_unit(a, path, first, last)
+            callers = maps.wires.get(tag)
+            if callers is not None:
+                a.strong |= maps.mask(callers)
+                a.loose |= maps.mask(callers)
+                a.specs.append(("wires", [tag], None, 0))
             return True
-        tag = f"{module_of(path)}:{'.'.join(classes)}|{name}|{key}"
         if tag not in maps.wired:
             return False  # not a callable entry, or the map does not follow it
         callers = maps.wires.get(tag)
         a.units.append((path, "entry", first, last))
         if callers is not None:
             a.strong |= maps.mask(callers)
+            a.loose |= maps.mask(callers)  # the map does not say where in the test it is called
         a.specs.append(("wires", [tag], None, 0))
         a.notes.append(f"entry:{tag}")
         return True
@@ -358,6 +366,7 @@ class Analyzer:
         # A function that also runs while modules load (metaclasses, decorators, table
         # builders) shapes everything loaded after it: those tests run in full.
         a.whole |= via_pickle | at_import
+        a.loose |= maps.lines(maps.loose, path, first, last)
         a.specs.append(("lines", [(path, first, last)], None, 0))
         a.notes.append(f"func:{path}:{first}-{last}" + ("+import" if at_import else ""))
 
@@ -374,6 +383,10 @@ class Analyzer:
         if class_key is not None and class_key in maps.classes:
             # An expression class: the tests that create it or a subclass of it.
             tests = maps.mask(maps.classes[class_key]) & loaders
+            for sub in self.subclasses(class_key):
+                k = maps.loose_classes.get(sub)
+                if k is not None:
+                    a.loose |= maps.mask(k)
             a.strong |= tests
             a.specs.append(("classes", self.subclasses(class_key), None, 0))
             a.notes.append(f"class:{class_key}")
@@ -429,6 +442,7 @@ class Analyzer:
                         a.pickle = True
                     readers |= picked | in_case
                     loose |= picked
+                    a.loose |= maps.lines(maps.loose, ref_path, ref_first, ref_last)
         if readers is not None:
             tests = readers & loaders
             if family:
@@ -440,6 +454,7 @@ class Analyzer:
         elif family:
             tests = (users | lazy) & loaders
             a.strong |= tests
+            a.loose |= loose_users
             a.whole |= (lazy & ~users) & tests
             a.specs.append(("dialects", family, None, 0))
             a.notes.append(f"family:{path}:{first}:{len(family)}")
@@ -468,8 +483,9 @@ class Analyzer:
                 continue
             if not data.get("tagged"):
                 # The test walks this fixture in a way the map could not split by case.
-                # With no code change, cases of an untouched fixture cannot differ.
-                result[fixture] = None if a.specs else set()
+                # Such a walk runs as the test's own code, so its cases only matter if
+                # the test's own code meets the change.
+                result[fixture] = None if a.specs and (a.loose >> bit_index) & 1 else set()
                 continue
             sets = data["sets"]
             mask = 0

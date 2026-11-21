@@ -61,6 +61,12 @@ def _on_line(code, line):
     return DISABLE
 
 
+def _on_start(code, offset):
+    # A function whose body sits on its `def`/`lambda` line (one-line lambdas above
+    # all) raises no LINE event when called. Its entry is recorded as its first line.
+    return _on_line(code, code.co_firstlineno)
+
+
 def _audit(event, args):
     if not _alive:
         return
@@ -328,7 +334,8 @@ inline_pool.install(_Hooks)
 sys.addaudithook(_audit)
 sys.monitoring.use_tool_id(TOOL, "blast-trace")
 sys.monitoring.register_callback(TOOL, sys.monitoring.events.LINE, _on_line)
-sys.monitoring.set_events(TOOL, sys.monitoring.events.LINE)
+sys.monitoring.register_callback(TOOL, sys.monitoring.events.PY_START, _on_start)
+sys.monitoring.set_events(TOOL, sys.monitoring.events.LINE | sys.monitoring.events.PY_START)
 
 import tests.helpers as _helpers  # noqa: E402
 
