@@ -20,6 +20,17 @@ COST_SCALE = 1.0
 # Tests whose whole body is one loop over the `Dialects` enum imported by their module.
 DIALECT_LOOPS = ("tests/test_generator.py::TestGenerator::test_generator_memory",)
 BASE_DIALECT = "sqlglot.dialects.dialect:Dialect"
+# Diagnostic builds only: the tests of the calibration workload.
+BURN = (
+    "tests/test_optimizer.py::TestOptimizer::test_tpcds",
+    "tests/test_optimizer.py::TestOptimizer::test_qualify_columns",
+    "tests/test_optimizer.py::TestOptimizer::test_scope",
+    "tests/test_optimizer.py::TestOptimizer::test_annotate_funcs",
+    "tests/dialects/test_snowflake.py::TestSnowflake::test_snowflake",
+    "tests/dialects/test_bigquery.py::TestBigQuery::test_bigquery",
+    "tests/dialects/test_duckdb.py::TestDuckDB::test_duckdb",
+    "tests/test_transpile.py::TestTranspile::test_identity",
+)
 # Loaded once, unpatched, before the test children are forked.
 WARM = ("sqlglot", "sqlglot.optimizer", "sqlglot.executor", "sqlglot.lineage", "tests.helpers")
 # Test classes that read their fixture files in setUpClass and keep the cases.
@@ -144,13 +155,15 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
     # that prior says nothing about which of them fail, so they are always checked.
     prior = policy.DATA_PRIOR if analysis.data_only and len(tests_spec) == 1 and not expensive \
         else None
+    if policy.ALWAYS_RUN:
+        prior = None
     if prior is not None and policy.Tracker(
             [(t[0], t[3], t[4]) for t in tests_spec], expensive, SPEED, prior).should_stop():
         return None  # selecting it unrun is cheaper than checking
     return {"key": commit, "root": SOURCE, "files": files, "pickle": analysis.pickle,
             "prior": prior, "tests": tests_spec, "expensive": expensive,
             "forced": maps.numbers(analysis.direct),
-            "speed": SPEED, "budget": 40.0}
+            "speed": SPEED, "budget": 400.0 if policy.ALWAYS_RUN else 40.0}
 
 
 def main():
@@ -219,6 +232,27 @@ def main():
         except Exception as error:
             log(f"verification failed ({error!r}); selecting unrun")
             verdicts = {}
+
+    if policy.ALWAYS_RUN:
+        # Calibration: a fixed, unpatched workload run 0, 1 or 2 times, chosen at random.
+        # The three scored runs then differ in CPU by whole multiples of what that
+        # workload costs on the scorer, which gives the scorer's speed against the
+        # machine the run costs were measured on.
+        import random
+        wanted = [t for t in tests if t["id"] in BURN]
+        repeats = random.SystemRandom().randrange(3)
+        if os.environ.get("BR_BURN"):
+            repeats = int(os.environ["BR_BURN"])  # local measurement of the workload
+        burn_jobs = [{"key": f"_burn{i}", "root": SOURCE, "files": {}, "pickle": False,
+                      "tests": [(t["number"], t["id"], 600.0, t["seconds"], 1.0, None, 0)
+                                for t in wanted],
+                      "expensive": [], "speed": 1.0, "budget": 1e9, "run_all": True}
+                     for i in range(repeats)]
+        if burn_jobs:
+            from .execute import run_guarded
+            run_guarded(burn_jobs, 1, time.time() + 120, ["unittest", "unittest.mock", "duckdb",
+                                                         "numpy", "pandas", "pandas.testing"], log)
+        log(f"calibration workload run {repeats} time(s)")
 
     out = []
     report = []

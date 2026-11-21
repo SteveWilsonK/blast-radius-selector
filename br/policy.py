@@ -9,6 +9,9 @@ MAX_WORKERS = 8
 NEVER_RUN = 5.0
 # Share of run candidates that must fail before unrun costly candidates are selected.
 EXPENSIVE_SHARE = 0.08
+# Diagnostic builds only: run every candidate that can be run, whatever it costs, so the
+# server's numbers show the best reachable simulated time and the full CPU bill.
+ALWAYS_RUN = True
 # Passing tests to see before the rest may be selected unrun.
 MIN_RUN = 8
 # A candidate that costs at least this many scorer seconds to run is put off to the
@@ -81,7 +84,7 @@ class Tracker:
                 and self.ran >= COSTLY_EVIDENCE)
 
     def should_stop(self):
-        if self.todo_sim <= 1e-9:
+        if ALWAYS_RUN or self.todo_sim <= 1e-9:
             return False
         if self.ran < MIN_RUN and not self.failed and self.prior is None:
             return False
