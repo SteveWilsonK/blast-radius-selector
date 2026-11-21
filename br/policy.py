@@ -87,7 +87,7 @@ class Tracker:
             share = (self.failed + 0.2) / (self.ran + 1.0)
         run = self.todo_cpu * self.speed + share * blind
         if not self.ran:
-            run += START_COST
+            run += START_COST * self.speed
         return blind <= run
 
 

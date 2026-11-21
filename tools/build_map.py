@@ -75,11 +75,13 @@ for i, tid in enumerate(ids):
                 fixture, index, case_lines, case_dialects, case_classes = case[:5]
                 case_pickled = case[5] if len(case) > 5 else {}
                 case_wires = case[6] if len(case) > 6 else ()
+                case_time = case[7] if len(case) > 7 else 0.0
                 entry = per_fixture.setdefault(
                     fixture, {"n": 0, "lines": table(), "dialects": collections.defaultdict(int),
                               "classes": collections.defaultdict(int),
-                              "wires": collections.defaultdict(int)})
+                              "wires": collections.defaultdict(int), "time": {}})
                 entry["n"] = max(entry["n"], index + 1)
+                entry["time"][index] = entry["time"].get(index, 0.0) + case_time
                 cbit = 1 << index
                 add(entry["lines"], case_lines, cbit)
                 add(entry["lines"], case_pickled, cbit)
@@ -113,6 +115,10 @@ for i, tid in enumerate(ids):
                     "dialects": {k: cid(m) for k, m in entry["dialects"].items()},
                     "classes": {k: cid(m) for k, m in entry["classes"].items()},
                     "wires": {k: cid(m) for k, m in entry["wires"].items()},
+                    # Share of the whole test's time spent in each case, when timed.
+                    "share": ([round(entry["time"].get(i, 0.0) / rec["seconds"], 5)
+                               for i in range(entry["n"])]
+                              if rec.get("seconds") else None),
                     "sets": table_,
                 }
             cases[i2] = zlib.compress(pickle.dumps(packed, protocol=5), 6)

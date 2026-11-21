@@ -17,6 +17,8 @@ NO_EXEC = os.environ.get("BR_NO_EXEC") == "1"
 # The run costs in the map were measured before the collector was relaxed in the
 # children (see child.py); with it the same tests take about this share of the time.
 COST_SCALE = 0.7
+# Loaded once, unpatched, before the test children are forked.
+WARM = ("sqlglot", "sqlglot.optimizer", "sqlglot.executor", "sqlglot.lineage", "tests.helpers")
 # Test classes that read their fixture files in setUpClass and keep the cases.
 CLASS_LOADED = ("tests/test_executor.py::TestExecutor",)
 # Scorer CPU seconds per second of the run costs stored in the map; measured at start.
@@ -71,6 +73,20 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
                     cases = {f: (v if v is None or v == "changed" else sorted(v))
                              for f, v in need.items()}
                     estimate = full * (0.05 + 0.95 * (wanted / total if total else 0.0))
+                    shares = [entry[f].get("share") for f in tagged]
+                    if tagged and all(shares):
+                        # Timed per case: the test's own code plus the cases it will run.
+                        every = sum(sum(share) for share in shares)
+                        chosen = 0.0
+                        for f, share in zip(tagged, shares):
+                            v = need.get(f)
+                            if v is None:
+                                chosen += sum(share)
+                            elif v == "changed":
+                                chosen += max(share) if share else 0.0
+                            else:
+                                chosen += sum(share[i] for i in v if i < len(share))
+                        estimate = full * max(0.03, min(1.0, 1.0 - every + chosen))
         if estimate >= policy.NEVER_RUN:
             expensive.append((number, seconds[number]))
             continue
@@ -170,7 +186,7 @@ def main():
             preload += ["duckdb", "numpy", "pandas", "pandas.testing"]
         deadline = started + max(30.0, WALL_PER_COMMIT * len(names) - 8.0)
         try:
-            verdicts = run_guarded(jobs, 2, deadline, preload, log)
+            verdicts = run_guarded(jobs, 2, deadline, preload, log, warm=WARM)
             if len(verdicts) <= 1 and len(preload) > 2:
                 # Nothing came back: a shared library may not load here. Let each
                 # child load what it needs on its own instead.

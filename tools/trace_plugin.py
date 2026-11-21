@@ -11,6 +11,7 @@ Writes $TRACE_OUT/trace-$TRACE_NAME.jsonl.
 import json
 import os
 import sys
+import time
 
 import inline_pool
 
@@ -177,11 +178,18 @@ _tags = {}      # id(meta dict) -> (fixture, index); the dicts are kept alive in
 _keep = []
 
 
+_clock = [0.0]
+
+
 def _switch(case_key):
     """Start attributing lines to a fixture case (or to none)."""
     global _case, _pending
     if _ctx is _import:
         return
+    now = time.process_time()
+    if _case is not None:
+        _case["t"] = _case.get("t", 0.0) + now - _clock[0]
+    _clock[0] = now
     if case_key is None:
         _case = None
         _pending = set()
@@ -224,6 +232,8 @@ def _wrap_loader(original):
         # Exhausted: what follows belongs to the test as a whole.
         global _case
         if _ctx is not _import:
+            if _case is not None:
+                _case["t"] = _case.get("t", 0.0) + time.process_time() - _clock[0]
             _case = None
             sys.monitoring.restart_events()
 
@@ -410,9 +420,11 @@ def _emit(test, phase, ctx):
         record[key] = sorted(ctx[key])
     record["cases"] = [
         [fixture, index, _pack(case["lines"]), sorted(case["dialects"]), sorted(case["classes"]),
-         _pack(case["plines"]), sorted(case["wires"])]
+         _pack(case["plines"]), sorted(case["wires"]), round(case.get("t", 0.0), 5)]
         for (fixture, index), case in ctx["cases"].items()
     ]
+    if phase == "run":
+        record["seconds"] = round(time.process_time() - ctx.get("t0", time.process_time()), 5)
     if phase == "import":
         record["mro"] = _mro
         record["wired"] = sorted(_wired)
@@ -424,6 +436,7 @@ def pytest_runtest_setup(item):
     global _ctx, _case, _pending
     _patch_sqlglot()
     _ctx = _new()
+    _ctx["t0"] = time.process_time()
     _case = None
     _pending = None
     sys.monitoring.restart_events()

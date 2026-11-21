@@ -39,6 +39,7 @@ class Analysis:
 
 
 FIXTURES = "tests/fixtures/"
+BASE_DIALECT = "sqlglot.dialects.dialect:Dialect"
 
 
 def module_of(path):
@@ -143,13 +144,17 @@ class Analyzer:
             old_path = fp.old_path
             if old_path is None:
                 a.notes.append(f"new:{fp.new_path}")
+                # A file that was not there cannot be shown to folder listings from
+                # memory, so a commit that adds one is never verified by running.
                 if fp.new_path and fp.new_path.endswith(".py"):
                     a.py_changed.append((fp.new_path, None))
+                elif fp.new_path:
+                    a.data_changed.append((fp.new_path, None))
                 continue
             if not old_path.endswith(".py"):
                 old_text = self.text(old_path)
                 new_text = None
-                if old_text is not None and fp.new_path and not fp.binary:
+                if old_text is not None and fp.new_path == old_path and not fp.binary:
                     new_text = patchlib.apply(old_text, fp)
                 a.data_changed.append((old_path, new_text))
                 continue
@@ -173,8 +178,10 @@ class Analyzer:
         old_text = self.text(path)
         moved = fp.new_path != path
         new_text = None
-        if old_text is not None and fp.new_path and not fp.binary:
+        if old_text is not None and fp.new_path and not fp.binary and not moved:
             new_text = patchlib.apply(old_text, fp)
+        # A moved or removed file cannot be stood in for from memory: its text stays
+        # None, which keeps the commit out of verification.
         a.py_changed.append((path, new_text))
         if not known:
             if os.path.basename(path) == "__init__.py":
@@ -372,6 +379,10 @@ class Analyzer:
             a.notes.append(f"class:{class_key}")
             return
         family = maps.families.get(path)
+        if family and BASE_DIALECT in family:
+            # A core file: every dialect is built on it, and so are tests that use no
+            # dialect at all. Who uses a dialect says nothing about who depends on it.
+            family = None
         users = loose_users = 0
         if family:
             for key in family:

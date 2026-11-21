@@ -3,12 +3,13 @@ import json
 import os
 import select
 import signal
+import sys
 import time
 
 from . import child
 
 
-def run_guarded(jobs, parallel, deadline, preload, log=lambda *a: None):
+def run_guarded(jobs, parallel, deadline, preload, log=lambda *a: None, warm=()):
     """Run the jobs in a helper process and stream each finished job back.
 
     The helper loads the heavy libraries and forks the test children, so a crash in
@@ -26,6 +27,19 @@ def run_guarded(jobs, parallel, deadline, preload, log=lambda *a: None):
                 try:
                     __import__(name)
                 except Exception:  # noqa: BLE001 - the tests that need it will say so
+                    pass
+            if warm and jobs:
+                # Load unpatched sqlglot once; a child whose patch touches none of the
+                # loaded modules starts from here, the others load their own copy.
+                try:
+                    root = jobs[0]["root"]
+                    os.environ["SKIP_INTEGRATION"] = "0"
+                    os.chdir(root)
+                    if root not in sys.path:
+                        sys.path.insert(0, root)
+                    for name in warm:
+                        __import__(name)
+                except Exception:  # noqa: BLE001
                     pass
 
             def done(key, verdicts, stats):

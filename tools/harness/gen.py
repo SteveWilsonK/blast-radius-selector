@@ -269,6 +269,9 @@ def make(kind):
 WEIGHTS = {"op": 22, "const": 10, "ret": 6, "del": 8, "arg": 3, "insert": 4, "table": 10,
            "attr": 8, "comment": 6, "doc": 2, "syntax": 2, "fixture": 14, "fixcomment": 3,
            "testpy": 5, "helpers": 2, "sqlstring": 2, "multi": 8}
+if os.environ.get("HARNESS_KINDS"):
+    # e.g. HARNESS_KINDS=op:40,const:20,ret:10,del:10,arg:5,attr:8,table:7
+    WEIGHTS = {k: int(v) for k, v in (item.split(":") for item in os.environ["HARNESS_KINDS"].split(","))}
 kinds = {}
 os.makedirs(os.path.join(out_dir, "commits"), exist_ok=True)
 names = list(WEIGHTS)
@@ -289,7 +292,7 @@ while made < count:
         patch = make(kind)
     if not patch:
         continue
-    name = f"h{made:03d}"
+    name = f"{os.environ.get('HARNESS_PREFIX', 'h')}{made:03d}"
     open(os.path.join(out_dir, "commits", name + ".patch"), "w").write(patch)
     kinds[name] = kind
     made += 1

@@ -89,8 +89,28 @@ def run(job, out_fd):
         # for it themselves.
         gc.freeze()
         gc.set_threshold(200000, 50, 100)
+    # sqlglot may already be loaded, unpatched, by the parent. That copy is only good
+    # if the patch touches none of the loaded modules; otherwise start clean.
+    patched = [overlay.module_name(rel)[0] for rel in job["files"] if rel.endswith(".py")]
+    if any(name in sys.modules for name in patched) or any(
+            rel.startswith("tests/") and rel.endswith(".py") for rel in job["files"]):
+        for name in list(sys.modules):
+            if name in ("sqlglot", "tests") or name.startswith(("sqlglot.", "tests.")):
+                del sys.modules[name]
     inline_pool.install(job["pickle"])
     overlay.install(root, job["files"])
+    if job["files"]:
+        # Tests that start another Python must meet the same patched files there.
+        try:
+            spec = f"/tmp/br-overlay-{os.getpid()}.json"
+            with open(spec, "w", encoding="utf-8") as handle:
+                json.dump({"root": root, "files": job["files"]}, handle)
+            hook = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hook")
+            os.environ["BR_OVERLAY"] = spec
+            os.environ["PYTHONPATH"] = os.pathsep.join(
+                [hook, root] + [p for p in os.environ.get("PYTHONPATH", "").split(os.pathsep) if p])
+        except Exception:  # noqa: BLE001
+            pass
     signal.signal(signal.SIGPROF, _alarm)
 
     active = {"cases": None}
@@ -218,7 +238,7 @@ def run(job, out_fd):
         state = {"i": 0, "t0": 0.0}
 
         def start(test, _state=state, _cases=cases):
-            if time.process_time() > budget or tracker.should_stop():
+            if not job.get("run_all") and (time.process_time() > budget or tracker.should_stop()):
                 raise OutOfBudget()
             if _timeouts[0] >= 3:
                 raise OutOfBudget()  # the patch hangs tests: stop paying for it
