@@ -26,6 +26,7 @@ WARM = ("sqlglot", "sqlglot.optimizer", "sqlglot.executor", "sqlglot.lineage", "
 CLASS_LOADED = ("tests/test_executor.py::TestExecutor",)
 # Scorer CPU seconds per second of the run costs stored in the map; measured at start.
 SPEED = 1.0
+SPEED_FLOOR = float(os.environ.get("BR_SPEED_FLOOR", "3.2"))
 # The scorer allows about 4.5 s of wall time per commit (3 min for 40, 4.5 min for 60).
 WALL_PER_COMMIT = 4.0
 RUN_ALL = os.environ.get("BR_RUN_ALL") == "1"   # development: never stop early on cost
@@ -251,7 +252,10 @@ def refine(plans, texts, analyzer, maps, cost_of, seconds, started, count):
 def main():
     global SPEED
     started = time.time()
-    SPEED = float(os.environ.get("BR_SPEED") or policy.machine_speed())
+    # Scorer CPU seconds per second of the run costs in the map. The short probe reads
+    # about 1.8 on the scorer, but the scorer's own numbers show tests there cost more
+    # than that (see NOTES.md): never price CPU below SPEED_FLOOR.
+    SPEED = float(os.environ.get("BR_SPEED") or max(policy.machine_speed(), SPEED_FLOOR))
     tests = json.load(open(os.path.join(DATA, "tests.json")))["tests"]
     ms = {t["number"]: int(t["seconds"] * 1000 + 0.5) for t in tests}
     maps = Maps(MAP, tests)
