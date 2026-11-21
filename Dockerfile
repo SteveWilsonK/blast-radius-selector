@@ -21,6 +21,9 @@ RUN python -m compileall -q /app/br /opt/sqlglot/sqlglot /opt/sqlglot/tests \
     && python /app/tools/build_enumdyn.py /opt/sqlglot /app/maps/enumdyn.bin \
     && chmod -R a+rX /app /opt/sqlglot
 
-ENV PYTHONDONTWRITEBYTECODE=1
+# Math libraries start one spinning thread per core when imported; every CPU second
+# is charged, and nothing here needs parallel math.
+ENV PYTHONDONTWRITEBYTECODE=1 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+    NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 DUCKDB_THREADS=1
 WORKDIR /app
 CMD ["python", "-m", "br.main"]
