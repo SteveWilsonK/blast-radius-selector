@@ -12,11 +12,13 @@ COPY tools/fetch_sqlglot.py /app/tools/fetch_sqlglot.py
 RUN python /app/tools/fetch_sqlglot.py /opt/sqlglot
 
 COPY br /app/br
+COPY tools/build_enumdyn.py /app/tools/build_enumdyn.py
 COPY maps/map.bin maps/refs.bin maps/cond.bin maps/reads.bin /app/maps/
 # The disk is read-only at run time: compile everything now. Then take a fingerprint
 # of everything the pinned sqlglot holds once loaded, to compare patched code against.
 RUN python -m compileall -q /app/br /opt/sqlglot/sqlglot /opt/sqlglot/tests \
     && cd /app && python -m br.state /opt/sqlglot /app/maps/state.bin \
+    && python /app/tools/build_enumdyn.py /opt/sqlglot /app/maps/enumdyn.bin \
     && chmod -R a+rX /app /opt/sqlglot
 
 ENV PYTHONDONTWRITEBYTECODE=1

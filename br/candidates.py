@@ -43,6 +43,9 @@ class Analysis:
 
 
 FIXTURES = "tests/fixtures/"
+# An Enum's own tables, which change with any member.
+ENUM_INNARDS = ("_member_map_", "_value2member_map_", "_hashable_values_", "_member_names_",
+                "_unhashable_values_", "_value_repr_")
 BASE_DIALECT = "sqlglot.dialects.dialect:Dialect"
 
 
@@ -62,6 +65,7 @@ class Analyzer:
         self._state = None
         self._refs_path = refs_path
         self._refs = None
+        self._enumdyn = None
         self._subclasses = {}
 
     def refs(self, name):
@@ -71,6 +75,17 @@ class Analyzer:
                 with open(self._refs_path, "rb") as f:
                     self._refs = pickle.loads(zlib.decompress(f.read()))
         return self._refs.get(name)
+
+    def _enum_dynamic(self):
+        """Enum class key -> code units reaching its members without naming them
+        (tools/build_enumdyn.py, built with the image)."""
+        if self._enumdyn is None:
+            self._enumdyn = {}
+            path = os.path.join(os.path.dirname(self._refs_path or ""), "enumdyn.bin")
+            if self._refs_path and os.path.exists(path):
+                with open(path, "rb") as f:
+                    self._enumdyn = pickle.loads(zlib.decompress(f.read()))["dynamic"]
+        return self._enumdyn
 
     def cond(self):
         """Comparison coverage, or None when it is absent or does not match this run."""
@@ -194,27 +209,80 @@ class Analyzer:
                         tags.add(holder + "|" + mark)
             return True
 
+        def by_reads(key):
+            """A value the recorded reads do not follow (a module-level name, an Enum
+            member, a value on a class the tracer leaves alone): the tests that run
+            code reading its name, plus, for an Enum member, code that reaches members
+            without naming them. Reads made while sqlglot loads need nothing here:
+            whatever they build is part of the comparison and is judged on its own."""
+            if "\t" in key:
+                name = key.split("\t", 1)[1]
+                holder = None
+            elif "|" in key:
+                parts = key.split("|")
+                holder, name = parts[0], parts[1]
+                if name.startswith("_") and name.endswith("_"):
+                    if holder in self._enum_dynamic() and name in ENUM_INNARDS:
+                        # An Enum's own lookup tables follow its members: code that
+                        # uses them reaches members without naming them, listed below.
+                        add_dynamic(holder)
+                        return True
+                    return False   # other machinery: not followed by name
+            else:
+                return False
+            places = self.refs(name)
+            if not places:
+                return False
+            for ref_path, ref_kind, ref_first, ref_last in places:
+                if ref_kind == "merge":
+                    continue
+                if ref_kind == "import":
+                    if not ref_path.startswith("sqlglot/"):
+                        return False   # a test module reads it while loading: not compared
+                    continue
+                lines.add((ref_path, ref_first, ref_last))
+            if holder is not None and holder in self._enum_dynamic():
+                if not add_dynamic(holder):
+                    return False
+            return True
+
+        def add_dynamic(holder):
+            for ref_path, ref_kind, ref_first, ref_last in self._enum_dynamic()[holder]:
+                if ref_kind == "import":
+                    if not ref_path.startswith("sqlglot/"):
+                        unpinned.append(holder)
+                        return False
+                    continue
+                lines.add((ref_path, ref_first, ref_last))
+            return True
+
+        lines = set()
+        unpinned = []
         for key in result.get("changed") or ():
             if key.endswith("\tcode"):
                 base = key[:-5]
                 if base.count("|") >= 2:
                     # A function stored as a dict entry: whoever fetches the entry.
-                    if not entry(base, ("key", "*")):
+                    if not entry(base, ("key", "*")) and not by_reads(base):
                         return None
                 # Otherwise a function whose own source changed: line coverage has it.
                 continue
-            if not entry(key, ("key", "*")):
+            if not entry(key, ("key", "*")) and not by_reads(key):
                 return None
         for key in result.get("removed") or ():
             if key.endswith("\tcode"):
                 key = key[:-5]
-            if key.count("|") < 2 or not entry(key, ("key", "#", "*")):
+            if not (key.count("|") >= 2 and entry(key, ("key", "#", "*"))) and not by_reads(key):
                 return None
         for key in result.get("added") or ():
             if key.endswith("\tcode"):
                 key = key[:-5]
-            if key.count("|") < 2 or not entry(key, ("key", "!", "#", "*")):
+            if not (key.count("|") >= 2 and entry(key, ("key", "!", "#", "*"))) and not by_reads(key):
                 return None
+        if unpinned:
+            return None
+        for path, first, last in sorted(lines):
+            tags.add(f"@lines|{path}|{first}|{last}")
         if not tags:
             return None       # nothing visible changed: do not conclude from silence
         return sorted(tags)
@@ -222,13 +290,27 @@ class Analyzer:
     def _apply_state(self, a, tags):
         maps = self.maps
         tests = 0
+        places = []
         for tag in tags:
+            if tag.startswith("@lines|"):
+                _, path, first, last = tag.split("|")
+                first, last = int(first), int(last)
+                places.append((path, first, last))
+                picked = maps.lines(maps.pick, path, first, last) | \
+                    maps.lines(maps.pick_case, path, first, last)
+                if picked:
+                    a.pickle = True
+                tests |= maps.lines(maps.run, path, first, last) | picked
+                a.loose |= maps.lines(maps.loose, path, first, last)
+                continue
             key = maps.reads.get(tag)
             if key is not None:
                 tests |= maps.mask(key)
         a.strong |= tests
         a.loose |= tests      # the map does not say where outside a case it is read
-        a.specs.append(("reads", list(tags), None, 0))
+        a.specs.append(("reads", [t for t in tags if not t.startswith("@lines|")], None, 0))
+        if places:
+            a.specs.append(("lines", places, None, 0))
         a.notes.append(f"state:{len(tags)} names")
 
     def analyze(self, patch_text, state=None):
