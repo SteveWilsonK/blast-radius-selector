@@ -150,4 +150,4 @@ def machine_speed():
         took = time.process_time() - started
         if best is None or took < best:
             best = took
-    return max(0.7, min(1.8, best / REFERENCE_LOOP))
+    return max(0.7, min(2.3, best / REFERENCE_LOOP))
