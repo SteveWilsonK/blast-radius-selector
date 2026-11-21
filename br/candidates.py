@@ -99,6 +99,27 @@ class Analyzer:
                 mask |= int.from_bytes(cond["sets"][key], "little")
         return mask
 
+    def _bool_reach(self, path, swap):
+        """Tests in which swapping `and` for `or` (or back) could change what one
+        boolean expression decides: those that saw a truth pair the two operators
+        answer differently. None when the recorded truths cannot settle it."""
+        cond = self.cond()
+        line, column, old_op, _ = swap
+        if cond is None or not path.startswith("sqlglot/") or path in cond["skipped"]:
+            return None
+        if not cond.get("bools"):
+            return None   # recorded before and/or were followed
+        if self._at_load(path, line, line):
+            return None
+        codes = cond["sites"].get(f"bool:{path}:{line}:{column}")
+        if codes is None:
+            return None   # never seen evaluated: nothing to go on
+        mask = 0
+        for code, key in codes.items():
+            if code in relations.BOOL_DIFFERS[old_op]:
+                mask |= int.from_bytes(cond["sets"][key], "little")
+        return mask
+
     def text(self, path):
         if path not in self._text:
             try:
@@ -363,10 +384,15 @@ class Analyzer:
                 continue
             seen.add((first, last))
             reach = None
+            bswap = None
             if kind == "func":
                 swap = relations.operator_swap(old_statement, twin)
                 if swap is not None:
                     reach = self._swap_reach(path, swap)
+                else:
+                    bswap = relations.bool_swap(old_statement, twin)
+                    if bswap is not None:
+                        reach = self._bool_reach(path, bswap)
             before = (a.strong, a.whole, a.loose)
             self._unit(a, path, kind, first, last, classes, names)
             if reach is not None:
@@ -376,7 +402,10 @@ class Analyzer:
                 a.strong = before[0] | ((a.strong & ~before[0]) & reach)
                 a.whole = before[1] | ((a.whole & ~before[1]) & reach)
                 a.loose = before[2] | ((a.loose & ~before[2]) & reach)
-                a.notes.append(f"swap:{path}:{swap[0]}:{swap[2].__name__}>{swap[3].__name__}")
+                if bswap is not None:
+                    a.notes.append(f"boolswap:{path}:{bswap[0]}:{bswap[2].__name__}>{bswap[3].__name__}")
+                else:
+                    a.notes.append(f"swap:{path}:{swap[0]}:{swap[2].__name__}>{swap[3].__name__}")
         # New lines: either part of a statement handled above, or a statement of their own.
         for new_line, old_position in added:
             statement = units.statement_at(new_tree, new_line)

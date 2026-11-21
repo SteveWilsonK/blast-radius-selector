@@ -158,9 +158,119 @@ builtins.__br_gt__ = _order(operator.gt)
 builtins.__br_ge__ = _order(operator.ge)
 
 
+# ---- and / or ------------------------------------------------------------
+# For every two-operand `x and y` / `x or y` inside a function: which truth pairs
+# each test saw. When the second operand is skipped (short-circuit) and is free of
+# side effects, it is also evaluated on the side, so its truth is known too.
+# Codes: 0 TT, 1 TF, 2 FT, 3 FF (both known); 4 F? and 5 T? (second unknown).
+_bools = {}   # "bool:file:line:col" -> bitmask of codes
+
+PURE_CALLS = {"isinstance", "len", "bool", "type", "hasattr", "callable", "getattr"}
+PURE_METHODS = {"get", "startswith", "endswith", "is_type", "isupper", "islower", "isdigit",
+                "upper", "lower", "strip", "find_ancestor"}
+
+
+def _pure(node):
+    """Can this expression be evaluated an extra time without changing anything?"""
+    if isinstance(node, (ast.Name, ast.Constant)):
+        return True
+    if isinstance(node, ast.Attribute):
+        return _pure(node.value)
+    if isinstance(node, ast.Subscript):
+        return _pure(node.value) and _pure(node.slice)
+    if isinstance(node, ast.Compare):
+        return _pure(node.left) and all(_pure(c) for c in node.comparators)
+    if isinstance(node, ast.UnaryOp):
+        return _pure(node.operand)
+    if isinstance(node, ast.BoolOp):
+        return all(_pure(v) for v in node.values)
+    if isinstance(node, (ast.Tuple, ast.List)):
+        return all(_pure(e) for e in node.elts)
+    if isinstance(node, ast.Call):
+        if node.keywords and not all(_pure(k.value) for k in node.keywords):
+            return False
+        if not all(_pure(a) for a in node.args):
+            return False
+        if isinstance(node.func, ast.Name):
+            return node.func.id in PURE_CALLS
+        if isinstance(node.func, ast.Attribute):
+            return node.func.attr in PURE_METHODS and _pure(node.func.value)
+    return False
+
+
+def _note_bool(site, code):
+    _bools[site] = _bools.get(site, 0) | (1 << code)
+
+
+def _side(thunk):
+    """Truth of a skipped operand, evaluated on the side: 1, 0 or None."""
+    global _quiet_cond
+    _quiet_cond += 1
+    try:
+        return 1 if thunk() else 0
+    except BaseException:  # noqa: BLE001
+        return None
+    finally:
+        _quiet_cond -= 1
+
+
+def _and(site, x, thunk, pure):
+    if x:
+        y = thunk()
+        _note_bool(site, 0 if y else 1)
+        return y
+    seen = _side(thunk) if pure else None
+    _note_bool(site, 4 if seen is None else (2 if seen else 3))
+    return x
+
+
+def _or(site, x, thunk, pure):
+    if not x:
+        y = thunk()
+        _note_bool(site, 2 if y else 3)
+        return y
+    seen = _side(thunk) if pure else None
+    _note_bool(site, 5 if seen is None else (0 if seen else 1))
+    return x
+
+
+_quiet_cond = 0
+builtins.__br_and__ = _and
+builtins.__br_or__ = _or
+
+
+def _has(node, kinds):
+    return any(isinstance(n, kinds) for n in ast.walk(node))
+
+
 class _Rewrite(ast.NodeTransformer):
     def __init__(self, rel_path):
         self.rel_path = rel_path
+        self.depth = 0   # functions we are inside
+
+    def _function(self, node):
+        self.depth += 1
+        self.generic_visit(node)
+        self.depth -= 1
+        return node
+
+    visit_FunctionDef = visit_AsyncFunctionDef = visit_Lambda = _function
+
+    def visit_BoolOp(self, node):
+        self.generic_visit(node)
+        if not self.depth or len(node.values) != 2:
+            return node
+        x, y = node.values
+        if _has(y, (ast.NamedExpr, ast.Yield, ast.YieldFrom, ast.Await)) or any(
+                isinstance(n, ast.Name) and n.id == "super" for n in ast.walk(y)):
+            return node
+        site = f"bool:{self.rel_path}:{node.lineno}:{node.col_offset}"
+        hook = "__br_and__" if isinstance(node.op, ast.And) else "__br_or__"
+        thunk = ast.Lambda(args=ast.arguments(posonlyargs=[], args=[], vararg=None, kwonlyargs=[],
+                                              kw_defaults=[], kwarg=None, defaults=[]), body=y)
+        call = ast.Call(func=ast.Name(id=hook, ctx=ast.Load()),
+                        args=[ast.Constant(site), x, thunk, ast.Constant(_pure(y))], keywords=[])
+        return ast.copy_location(call, node)
 
     def visit_Compare(self, node):
         self.generic_visit(node)
@@ -232,6 +342,7 @@ def pytest_sessionfinish(session, exitstatus):
     os.makedirs(OUT_DIR, exist_ok=True)
     with open(os.path.join(OUT_DIR, f"cond-{NAME}.json"), "w") as handle:
         merged = dict(_seen)
+        merged.update(_bools)
         for site in _same:
             merged[site] = merged.get(site, 0) | SAME
         for site in _apart:

@@ -46,6 +46,7 @@ def intern(mask):
 
 data = {
     "ids": ids,
+    "bools": any(site.startswith("bool:") for site in sites),
     "complete": missing == 0,
     "skipped": skipped,
     "sites": {site: {code: intern(mask) for code, mask in codes.items()} for site, codes in sites.items()},
