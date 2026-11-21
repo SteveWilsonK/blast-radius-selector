@@ -12,7 +12,7 @@ COPY tools/fetch_sqlglot.py /app/tools/fetch_sqlglot.py
 RUN python /app/tools/fetch_sqlglot.py /opt/sqlglot
 
 COPY br /app/br
-COPY maps/map.bin maps/refs.bin /app/maps/
+COPY maps/map.bin maps/refs.bin maps/cond.bin /app/maps/
 # The disk is read-only at run time: compile everything now.
 RUN python -m compileall -q /app/br /opt/sqlglot/sqlglot /opt/sqlglot/tests \
     && chmod -R a+rX /app /opt/sqlglot

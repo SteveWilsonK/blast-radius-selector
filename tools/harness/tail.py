@@ -24,7 +24,7 @@ tests = json.load(open(os.path.join(harness, "tests.json")))["tests"]
 seconds = {t["number"]: t["seconds"] for t in tests}
 id_of = {t["number"]: t["id"] for t in tests}
 maps = Maps("/app/maps/map.bin", tests)
-analyzer = Analyzer(maps, selector.SOURCE, "/app/maps/refs.bin")
+analyzer = Analyzer(maps, selector.SOURCE, "/app/maps/refs.bin", "/app/maps/cond.bin")
 os.makedirs(os.path.join(harness, OUT), exist_ok=True)
 
 import unittest  # noqa: E402,F401

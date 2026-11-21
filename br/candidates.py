@@ -5,6 +5,7 @@ import pickle
 import zlib
 
 from . import patch as patchlib
+from . import relations
 from . import units
 
 
@@ -49,7 +50,9 @@ def module_of(path):
 
 
 class Analyzer:
-    def __init__(self, maps, source_root, refs_path=None):
+    def __init__(self, maps, source_root, refs_path=None, cond_path=None):
+        self._cond_path = cond_path
+        self._cond = False
         self.maps = maps
         self.root = source_root
         self._text = {}
@@ -65,6 +68,33 @@ class Analyzer:
                 with open(self._refs_path, "rb") as f:
                     self._refs = pickle.loads(zlib.decompress(f.read()))
         return self._refs.get(name)
+
+    def cond(self):
+        """Comparison coverage, or None when it is absent or does not match this run."""
+        if self._cond is False:
+            self._cond = None
+            if self._cond_path and os.path.exists(self._cond_path):
+                with open(self._cond_path, "rb") as f:
+                    data = pickle.loads(zlib.decompress(f.read()))
+                if data.get("complete") and data.get("ids") == self.maps.ids:
+                    self._cond = data
+        return self._cond
+
+    def _swap_reach(self, path, swap):
+        """Tests in which swapping one comparison's operator could change its result:
+        those that saw the operands relate in a way the two operators answer
+        differently. None when comparison coverage cannot settle it."""
+        cond = self.cond()
+        line, column, old_op, new_op = swap
+        if cond is None or not path.startswith("sqlglot/") or path in cond["skipped"]:
+            return None
+        if self._at_load(path, line, line):
+            return None  # also evaluated while sqlglot loads: its effect is not per test
+        mask = 0
+        for code, key in cond["sites"].get(f"{path}:{line}:{column}", {}).items():
+            if relations.differs(old_op, new_op, code):
+                mask |= int.from_bytes(cond["sets"][key], "little")
+        return mask
 
     def text(self, path):
         if path not in self._text:
@@ -248,7 +278,21 @@ class Analyzer:
                     a, path, classes, table, entry, units.table_statement(twin)):
                 continue
             seen.add((first, last))
+            reach = None
+            if kind == "func":
+                swap = relations.operator_swap(old_statement, twin)
+                if swap is not None:
+                    reach = self._swap_reach(path, swap)
+            before = (a.strong, a.whole, a.loose)
             self._unit(a, path, kind, first, last, classes, names)
+            if reach is not None:
+                # Only one comparison's operator changed. A test in which every
+                # evaluation of it gives the same answer under both operators runs
+                # exactly as before, so only the others stay candidates.
+                a.strong = before[0] | ((a.strong & ~before[0]) & reach)
+                a.whole = before[1] | ((a.whole & ~before[1]) & reach)
+                a.loose = before[2] | ((a.loose & ~before[2]) & reach)
+                a.notes.append(f"swap:{path}:{swap[0]}:{swap[2].__name__}>{swap[3].__name__}")
         # New lines: either part of a statement handled above, or a statement of their own.
         for new_line, old_position in added:
             statement = units.statement_at(new_tree, new_line)

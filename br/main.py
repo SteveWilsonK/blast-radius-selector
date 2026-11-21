@@ -160,7 +160,8 @@ def main():
     tests = json.load(open(os.path.join(DATA, "tests.json")))["tests"]
     ms = {t["number"]: int(t["seconds"] * 1000 + 0.5) for t in tests}
     maps = Maps(MAP, tests)
-    analyzer = Analyzer(maps, SOURCE, os.path.join(os.path.dirname(MAP), "refs.bin"))
+    analyzer = Analyzer(maps, SOURCE, os.path.join(os.path.dirname(MAP), "refs.bin"),
+                        os.path.join(os.path.dirname(MAP), "cond.bin"))
     commit_dir = os.path.join(DATA, "commits")
     names = sorted(f for f in os.listdir(commit_dir) if f.endswith(".patch"))
     everything = [t["number"] for t in tests]

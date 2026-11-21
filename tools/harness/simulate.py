@@ -34,7 +34,7 @@ for harness in sys.argv[2:]:
     seconds = {t["number"]: t["seconds"] for t in tests}
     id_of = {t["number"]: t["id"] for t in tests}
     maps = Maps(os.path.join(here, "map.bin"), tests)
-    analyzer = Analyzer(maps, source, os.path.join(here, "refs.bin"))
+    analyzer = Analyzer(maps, source, os.path.join(here, "refs.bin"), os.path.join(here, "cond.bin"))
     kinds = json.load(open(os.path.join(harness, "kinds.json")))
     for name in sorted(os.listdir(os.path.join(harness, "answers"))):
         commit = name[:-5]
