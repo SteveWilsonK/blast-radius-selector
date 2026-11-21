@@ -243,6 +243,48 @@ def _has(node, kinds):
     return any(isinstance(n, kinds) for n in ast.walk(node))
 
 
+# ---- Enum values ---------------------------------------------------------
+# Which tests use the value of which member of a sqlglot Enum: reading `.value`, or
+# looking a member up by value (`Cls(value)`, hits and misses alike). Comparing,
+# hashing or printing a plain Enum member never uses its value, so a change to one
+# member's value reaches only these tests (and whatever sqlglot built from the
+# value while loading, which the state comparison sees).
+# Sites: "enumval:module:Class|MEMBER" and "enumv2m:module:Class|<canon value>".
+_enum_seen = set()
+
+
+def _install_enum_hooks():
+    from br.state import canon_key
+
+    value_property = enum.Enum.__dict__["value"]
+    plain_get = value_property.fget
+
+    def value(self):
+        cls = type(self)
+        if cls.__module__.startswith("sqlglot."):
+            site = f"enumval:{cls.__module__}:{cls.__qualname__}|{self._name_}"
+            if site not in _enum_seen:
+                _enum_seen.add(site)
+                _bools[site] = 1
+        return plain_get(self)
+
+    hooked = enum.property(value)
+    hooked.__set_name__(enum.Enum, "value")
+    type.__setattr__(enum.Enum, "value", hooked)
+    original_call = enum.EnumType.__call__
+
+    def call(cls, value, *args, **kwargs):
+        if not args and not kwargs and cls.__module__.startswith("sqlglot."):
+            name = canon_key(value)
+            site = f"enumv2m:{cls.__module__}:{cls.__qualname__}|{name if name is not None else '*'}"
+            if site not in _enum_seen:
+                _enum_seen.add(site)
+                _bools[site] = 1
+        return original_call(cls, value, *args, **kwargs)
+
+    enum.EnumType.__call__ = call
+
+
 class _Rewrite(ast.NodeTransformer):
     def __init__(self, rel_path):
         self.rel_path = rel_path
@@ -334,6 +376,8 @@ sys.meta_path.insert(0, _Finder())
 
 sys.path.insert(0, os.environ.get("BR_APP", "/app"))
 from br import inline_pool  # noqa: E402
+
+_install_enum_hooks()
 
 inline_pool.install(True)   # pool work runs here, pickled as in the real pool
 

@@ -91,8 +91,10 @@ class Analyzer:
         line, column, old_op, new_op = swap
         if cond is None or not path.startswith("sqlglot/") or path in cond["skipped"]:
             return None
-        if self._at_load(path, line, line):
-            return None  # also evaluated while sqlglot loads: its effect is not per test
+        # A comparison sqlglot also evaluates while it loads is fine too: each test was
+        # recorded in a process of its own from import onwards, so the evaluations made
+        # while loading are in every record that loaded it, and a swap that changes one
+        # of them reaches every such test.
         mask = 0
         for code, key in cond["sites"].get(f"{path}:{line}:{column}", {}).items():
             if relations.differs(old_op, new_op, code):
@@ -109,8 +111,6 @@ class Analyzer:
             return None
         if not cond.get("bools"):
             return None   # recorded before and/or were followed
-        if self._at_load(path, line, line):
-            return None
         codes = cond["sites"].get(f"bool:{path}:{line}:{column}")
         if codes is None:
             return None   # never seen evaluated: nothing to go on
