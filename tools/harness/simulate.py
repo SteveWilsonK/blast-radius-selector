@@ -65,11 +65,18 @@ for harness in sys.argv[2:]:
                                      job["expensive"], SPEED, job.get("prior"))
             verdict = {}
             stopped = False
+            skipped = None
+            forced = set(job.get("forced", ()))
             for key in order:
                 for t in groups[key]:
                     if stopped or tracker.should_stop():
                         stopped = True
-                        verdict[t[0]] = (3, 0.0)
+                        verdict[t[0]] = (3 if (skipped is None or t[0] in forced) else 4, 0.0)
+                        continue
+                    if t[0] not in forced and tracker.skip_costly(t[4]):
+                        stopped = True
+                        skipped = True
+                        verdict[t[0]] = (4, 0.0)
                         continue
                     failed = t[0] in truth
                     # a failing test stops at its first failure: charge part of it

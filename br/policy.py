@@ -11,6 +11,11 @@ NEVER_RUN = 5.0
 EXPENSIVE_SHARE = 0.08
 # Passing tests to see before the rest may be selected unrun.
 MIN_RUN = 8
+# A candidate that costs at least this many scorer seconds to run is put off to the
+# end. If by then enough cheaper candidates have run and none has failed, it is
+# neither run nor selected (0 disables the rule).
+COSTLY = float(__import__("os").environ.get("BR_COSTLY", "0"))
+COSTLY_EVIDENCE = 20
 # CPU seconds to fork a child and load the patched code before the first test.
 START_COST = 0.15
 # A patch to a data file a test reads nearly always fails that test.
@@ -69,6 +74,11 @@ class Tracker:
 
     def expensive_selected(self):
         return self.exp_sim > 0 and self.ran > 0 and select_expensive(self.ran, self.failed)
+
+    def skip_costly(self, run_cost):
+        """Leave a costly candidate out: nothing cheaper failed, and enough was tried."""
+        return (COSTLY > 0 and run_cost * self.speed >= COSTLY and not self.failed
+                and self.ran >= COSTLY_EVIDENCE)
 
     def should_stop(self):
         if self.todo_sim <= 1e-9:

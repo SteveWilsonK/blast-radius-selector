@@ -14,9 +14,9 @@ APP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SOURCE = os.environ.get("BR_SOURCE", "/opt/sqlglot")
 MAP = os.environ.get("BR_MAP", os.path.join(APP, "maps", "map.bin"))
 NO_EXEC = os.environ.get("BR_NO_EXEC") == "1"
-# The run costs in the map were measured before the collector was relaxed in the
-# children (see child.py); with it the same tests take about this share of the time.
-COST_SCALE = 0.7
+# Multiplier on the run costs stored in the map (they were measured with the same
+# child set-up the selector uses, so none is needed).
+COST_SCALE = 1.0
 # Loaded once, unpatched, before the test children are forked.
 WARM = ("sqlglot", "sqlglot.optimizer", "sqlglot.executor", "sqlglot.lineage", "tests.helpers")
 # Test classes that read their fixture files in setUpClass and keep the cases.
@@ -121,12 +121,17 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
             cases = "whole" if s[5] is None else (
                 f"{sum(1 if v == 'changed' else len(v) for v in s[5].values() if v is not None)} cases")
             log(f"    {s[7]:.2f}s -> {s[4]:.2f}s {cases} part{s[6]} {s[1].split('::', 1)[1]}")
-    prior = policy.DATA_PRIOR if analysis.data_only else None
+    # A patched data file nearly always fails the test that reads it. With a single
+    # reader, selecting it unrun can be cheaper than checking. With several readers
+    # that prior says nothing about which of them fail, so they are always checked.
+    prior = policy.DATA_PRIOR if analysis.data_only and len(tests_spec) == 1 and not expensive \
+        else None
     if prior is not None and policy.Tracker(
             [(t[0], t[3], t[4]) for t in tests_spec], expensive, SPEED, prior).should_stop():
-        return None  # selecting them unrun is cheaper than checking
+        return None  # selecting it unrun is cheaper than checking
     return {"key": commit, "root": SOURCE, "files": files, "pickle": analysis.pickle,
             "prior": prior, "tests": tests_spec, "expensive": expensive,
+            "forced": maps.numbers(analysis.direct),
             "speed": SPEED, "budget": 40.0}
 
 

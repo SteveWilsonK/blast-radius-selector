@@ -22,6 +22,10 @@ class OutOfBudget(BaseException):
     pass
 
 
+class SkipRest(BaseException):
+    """The remaining candidates are costly and nothing cheaper failed."""
+
+
 class _Result(unittest.TestResult):
     def __init__(self):
         super().__init__()
@@ -177,6 +181,8 @@ def run(job, out_fd):
     tracker = Tracker([(t[0], t[3], t[4]) for t in job["tests"]], job.get("expensive", ()),
                       job.get("speed", 1.0), job.get("prior"))
     stop_all = False
+    stop_code = 3
+    forced = set(job.get("forced", ()))
     import_cpu = 0.0
     for number, test_id, limit, _, _, _, part in job["tests"]:
         path, cls, method = test_id.split("::")
@@ -191,7 +197,8 @@ def run(job, out_fd):
         items = by_class[(path, cls_name, part)]
         if stop_all:
             for number, _, _ in items:
-                out.write(json.dumps([number, 3, 0.0]) + "\n")
+                code = 3 if number in forced else stop_code
+                out.write(json.dumps([number, code, 0.0]) + "\n")
             continue
         module_name = path[:-3].replace("/", ".")
         phase_limit = PHASE_LIMIT * job.get("speed", 1.0) if not _timeouts[0] else 2.0
@@ -251,6 +258,9 @@ def run(job, out_fd):
         def start(test, _state=state, _cases=cases):
             if not job.get("run_all") and (time.process_time() > budget or tracker.should_stop()):
                 raise OutOfBudget()
+            upcoming = _cases[_state["i"]][0]
+            if not job.get("run_all") and upcoming not in forced and tracker.skip_costly(info[upcoming][1]):
+                raise SkipRest()
             if _timeouts[0] >= 3:
                 raise OutOfBudget()  # the patch hangs tests: stop paying for it
             _state["t0"] = time.process_time()
@@ -287,6 +297,10 @@ def run(job, out_fd):
         except OutOfBudget:
             unrun = 3  # not run at all: the caller decides
             stop_all = True
+        except SkipRest:
+            unrun = 4  # not run, taken as passing
+            stop_all = True
+            stop_code = 4
         except BaseException:  # noqa: BLE001
             pass
         signal.setitimer(signal.ITIMER_PROF, 0)
