@@ -26,7 +26,7 @@ WARM = ("sqlglot", "sqlglot.optimizer", "sqlglot.executor", "sqlglot.lineage", "
 CLASS_LOADED = ("tests/test_executor.py::TestExecutor",)
 # Scorer CPU seconds per second of the run costs stored in the map; measured at start.
 SPEED = 1.0
-SPEED_FLOOR = float(os.environ.get("BR_SPEED_FLOOR", "3.2"))
+SPEED_FLOOR = float(os.environ.get("BR_SPEED_FLOOR", "1.0"))
 # The scorer allows about 4.5 s of wall time per commit (3 min for 40, 4.5 min for 60).
 WALL_PER_COMMIT = 4.0
 RUN_ALL = os.environ.get("BR_RUN_ALL") == "1"   # development: never stop early on cost
