@@ -12,6 +12,15 @@ NEVER_RUN = 5.0
 ADAPT = os.environ.get("BR_ADAPT") == "1"
 # Share of run candidates that must fail before unrun costly candidates are selected.
 EXPENSIVE_SHARE = 0.08
+# A test too costly to run is left out on the evidence of the others. Measured on
+# generated patches with real pytest: when the others all ran and passed, it still
+# failed in about 1 case in 13; when most of the others were never run (selected
+# unrun after a few cheap ones passed), in 6 cases of 41. A miss costs MISS seconds,
+# so a left-out costly test is kept whenever adding it to the schedule costs less
+# than its share of that risk. (0 turns the rule off.)
+MISS = 300.0
+RISK_UNVERIFIED = float(os.environ.get("BR_RISK_UNVERIFIED", "0.15"))
+RISK_VERIFIED = float(os.environ.get("BR_RISK_VERIFIED", "0.0"))
 # Passing tests to see before the rest may be selected unrun.
 MIN_RUN = 8
 # A candidate that costs at least this many scorer seconds to run is put off to the

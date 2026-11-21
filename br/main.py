@@ -67,6 +67,23 @@ def decide(selected, verdict, forced=(), ruled_out=0):
     return keep, failed, ran, unknown, expensive
 
 
+def insure(keep, dropped, ms, risk):
+    """Costly tests left out on the others' evidence: put back the ones that cost
+    less to schedule than the risk of leaving them out. Tries every combination
+    (there are at most a handful of such tests)."""
+    if not dropped or risk <= 0:
+        return keep
+    dropped = sorted(dropped, key=lambda n: -ms[n])[:4]
+    base = sorted(keep)
+    best = None
+    for mask in range(1 << len(dropped)):
+        extra = [n for i, n in enumerate(dropped) if (mask >> i) & 1]
+        cost = split(base + extra, ms)[0] / 1000 + policy.MISS * risk * (len(dropped) - len(extra))
+        if best is None or cost < best[0] - 1e-9:
+            best = (cost, extra)
+    return set(keep) | set(best[1])
+
+
 def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
     """Decide what to run for one commit, and how much of each test."""
     specs = []
@@ -356,6 +373,13 @@ def main():
             forced = maps.numbers(analysis.direct) if analysis is not None else ()
             keep, failed, ran, unknown, expensive = decide(
                 selected, verdict, forced, RULED_OUT.get(commit, 0))
+            left_out = [n for n in expensive if n not in keep]
+            if left_out:
+                # Unrun candidates say nothing about the costly tests: the share of
+                # failures only counts as evidence when the others really ran.
+                thin = unknown or len(ran) < policy.MIN_RUN
+                risk = policy.RISK_UNVERIFIED if thin else policy.RISK_VERIFIED
+                keep = insure(keep, left_out, ms, risk)
             cpu = sum(v[1] for v in verdict.values())
             total, imports, user, system = (verdicts.get("_stats", {}).get(commit, ()) + (0,) * 4)[:4]
             if os.environ.get("BR_DEBUG") == commit:
