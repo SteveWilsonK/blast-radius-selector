@@ -77,7 +77,7 @@ for harness in sys.argv[2:]:
                     cpu += spent
                     verdict[t[0]] = (1 if failed else 0, spent)
                     tracker.record(t[3], t[4], failed, spent)
-            keep = selector.decide(selected, verdict)[0]
+            keep = selector.decide(selected, verdict, maps.numbers(analysis.direct))[0]
             chosen = sorted(keep)
         else:
             chosen = sorted(set(selected))

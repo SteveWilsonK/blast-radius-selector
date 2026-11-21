@@ -20,6 +20,7 @@ class Analysis:
 
     def __init__(self):
         self.strong = 0
+        self.direct = 0           # tests that read a patched file: affected for certain
         self.whole = 0
         self.specs = []
         self.everything = False
@@ -109,6 +110,7 @@ class Analyzer:
                 if key is not None:
                     readers = maps.mask(key)
                     a.strong |= readers
+                    a.direct |= readers
                     if path.startswith(FIXTURES) and fp.old_path == fp.new_path:
                         # Tests that walk it case by case only need the cases that changed.
                         name = path[len(FIXTURES):]
@@ -126,6 +128,7 @@ class Analyzer:
                         if key is not None:
                             listers = maps.mask(key)
                             a.strong |= listers
+                            a.direct |= listers
                             a.whole |= listers
                             a.notes.append(f"listed:{folder}")
                         if folder in ("/", ""):

@@ -202,6 +202,9 @@ def _flush_pending():
     _pending = None
 
 
+_by_text = {}   # SQL text of a fixture case -> its (fixture, index), or None when ambiguous
+
+
 def _wrap_loader(original):
     def loader(filename):
         index = 0
@@ -210,6 +213,11 @@ def _wrap_loader(original):
             if isinstance(item, tuple) and item and isinstance(item[0], dict):
                 _tags[id(item[0])] = key
                 _keep.append(item[0])
+            text = item if isinstance(item, str) else (
+                item[1] if isinstance(item, tuple) and len(item) > 1 and isinstance(item[1], str)
+                else None)
+            if text is not None:
+                _by_text[text] = key if _by_text.get(text, key) == key else None
             _switch(key)
             yield item
             index += 1
@@ -221,6 +229,39 @@ def _wrap_loader(original):
 
     loader.__name__ = original.__name__
     return loader
+
+
+import contextlib  # noqa: E402
+import unittest  # noqa: E402
+
+_real_subtest = unittest.TestCase.subTest
+
+
+@contextlib.contextmanager
+def _subtest(self, msg=unittest.case._subtest_msg_sentinel, **params):
+    """A test that keeps its fixture cases in a list and walks them with subTest:
+    when the sub-test names a case's SQL, its lines belong to that case."""
+    key = None
+    if _case is None and _ctx is not _import:
+        texts = [value for value in params.values() if isinstance(value, str)]
+        if isinstance(msg, str):
+            texts.append(msg)
+            texts.append(msg.split(", ", 1)[-1])
+        for text in texts:
+            key = _by_text.get(text)
+            if key is not None:
+                break
+    if key is not None:
+        _switch(key)
+    try:
+        with _real_subtest(self, msg, **params):
+            yield
+    finally:
+        if key is not None:
+            _switch(None)
+
+
+unittest.TestCase.subTest = _subtest
 
 
 def _submit_tag(args, kwargs):

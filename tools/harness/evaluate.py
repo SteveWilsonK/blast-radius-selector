@@ -51,6 +51,7 @@ for line in open(sys.argv[4]):
         report = {r["commit"]: r for r in json.loads(line[7:])}
 by_kind = collections.defaultdict(lambda: [0, 0.0, 0.0, 0.0, 0, 0])
 missed = []
+disagreements = []   # tests the verifier passed that truly fail
 for commit, answer in sorted(answers.items()):
     workers = output.get(commit, [])
     chosen = {n for w in workers for n in w}
@@ -58,6 +59,9 @@ for commit, answer in sorted(answers.items()):
     oracle = split(answer["failing"], ms)[0] / 1000
     cpu = report.get(commit, {}).get("cpu", 0.0)
     miss = [n for n in answer["failing"] if n not in chosen]
+    wrong = [n for n in report.get(commit, {}).get("passed", []) if n in set(answer["failing"])]
+    if wrong:
+        disagreements.append((commit, answer["kind"], [ids[n].split("::", 1)[1] for n in wrong[:5]]))
     row = by_kind[answer["kind"]]
     row[0] += 1
     row[1] += cost
@@ -78,3 +82,6 @@ print(f"{'TOTAL':11s} {total[0]:4d} {total[5]:4d} {total[1]:8.1f} {total[2]:7.1f
       f"{total[1] + total[2] - total[3]:+8.1f} {total[4]:4d}   (+{300 * total[4]} s for misses)")
 for row in missed:
     print("MISS", *row)
+print(f"verifier passed a truly failing test in {len(disagreements)} commits")
+for row in disagreements:
+    print("DISAGREE", *row)

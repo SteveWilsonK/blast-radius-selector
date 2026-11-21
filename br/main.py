@@ -14,6 +14,9 @@ APP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SOURCE = os.environ.get("BR_SOURCE", "/opt/sqlglot")
 MAP = os.environ.get("BR_MAP", os.path.join(APP, "maps", "map.bin"))
 NO_EXEC = os.environ.get("BR_NO_EXEC") == "1"
+# The run costs in the map were measured before the collector was relaxed in the
+# children (see child.py); with it the same tests take about this share of the time.
+COST_SCALE = 0.7
 # Test classes that read their fixture files in setUpClass and keep the cases.
 CLASS_LOADED = ("tests/test_executor.py::TestExecutor",)
 # Scorer CPU seconds per second of the run costs stored in the map; measured at start.
@@ -26,7 +29,7 @@ def log(*args):
     print(*args, file=sys.stderr, flush=True)
 
 
-def decide(selected, verdict):
+def decide(selected, verdict, forced=()):
     """From what was run to what is selected.
 
     verdict: number -> (status, cpu) for the tests handed to a child; status 0 passed,
@@ -40,6 +43,9 @@ def decide(selected, verdict):
     keep = set(failed) | set(unknown)
     if policy.select_expensive(len(ran), len(failed)):
         keep |= set(expensive)
+    else:
+        # A test that reads a patched file is never dropped on the others' evidence.
+        keep |= set(expensive) & set(forced)
     return keep, failed, ran, unknown, expensive
 
 
@@ -48,7 +54,7 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
     specs = []
     expensive = []
     for bit, number in maps.bits(analysis.strong):
-        full = cost_of.get(number, seconds[number])
+        full = cost_of.get(number, seconds[number]) * COST_SCALE
         cases = None
         estimate = full
         if maps.has_cases(bit):
@@ -183,7 +189,8 @@ def main():
         note = ""
         if commit in verdicts:
             verdict = verdicts[commit]
-            keep, failed, ran, unknown, expensive = decide(selected, verdict)
+            forced = maps.numbers(analysis.direct) if analysis is not None else ()
+            keep, failed, ran, unknown, expensive = decide(selected, verdict, forced)
             cpu = sum(v[1] for v in verdict.values())
             total, imports, user, system = (verdicts.get("_stats", {}).get(commit, ()) + (0,) * 4)[:4]
             if os.environ.get("BR_DEBUG") == commit:
@@ -212,6 +219,8 @@ def main():
         report.append({"commit": commit, "selected": len(selected), "workers": len(workers),
                        "cost": cost / 1000, "note": note,
                        "notes": analysis.notes if analysis else [],
+                       "passed": sorted(n for n, v in verdicts.get(commit, {}).items()
+                                        if v[0] == 0) if os.environ.get("BR_REPORT") else [],
                        "cpu": (verdicts.get("_stats", {}).get(commit) or (0.0,))[0]})
         log(f"{commit}: {len(selected)} tests, {cost / 1000:.2f}s", note,
             " ".join(analysis.notes) if analysis else "")

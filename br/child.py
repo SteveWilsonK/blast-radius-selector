@@ -81,6 +81,14 @@ def run(job, out_fd):
     os.environ["SKIP_INTEGRATION"] = "0"
     from . import inline_pool, overlay
 
+    if os.environ.get("BR_GC", "1") == "1":
+        import gc
+
+        # sqlglot builds many small objects; the default collector settings spend a
+        # visible share of the run scanning them. Tests that need a collection ask
+        # for it themselves.
+        gc.freeze()
+        gc.set_threshold(200000, 50, 100)
     inline_pool.install(job["pickle"])
     overlay.install(root, job["files"])
     signal.signal(signal.SIGPROF, _alarm)
