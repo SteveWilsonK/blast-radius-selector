@@ -17,6 +17,9 @@ NO_EXEC = os.environ.get("BR_NO_EXEC") == "1"
 # Multiplier on the run costs stored in the map (they were measured with the same
 # child set-up the selector uses, so none is needed).
 COST_SCALE = 1.0
+# Tests whose whole body is one loop over the `Dialects` enum imported by their module.
+DIALECT_LOOPS = ("tests/test_generator.py::TestGenerator::test_generator_memory",)
+BASE_DIALECT = "sqlglot.dialects.dialect:Dialect"
 # Loaded once, unpatched, before the test children are forked.
 WARM = ("sqlglot", "sqlglot.optimizer", "sqlglot.executor", "sqlglot.lineage", "tests.helpers")
 # Test classes that read their fixture files in setUpClass and keep the cases.
@@ -87,6 +90,21 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
                             else:
                                 chosen += sum(share[i] for i in v if i < len(share))
                         estimate = full * max(0.03, min(1.0, 1.0 - every + chosen))
+        if cases is None and id_of[number] in DIALECT_LOOPS and not (analysis.whole >> bit) & 1 \
+                and not (analysis.direct >> bit) & 1 and analysis.specs and all(
+                    kind == "dialects" or (kind == "lines" and family)
+                    for kind, _, family, _ in analysis.specs):
+            # This test repeats the same work for every dialect. Every reason it is a
+            # candidate is tied to the dialects built from the patched file, so only
+            # their turns of the loop can change.
+            wanted = set()
+            for kind, what, family, _ in analysis.specs:
+                wanted.update(what if kind == "dialects" else family)
+            names = sorted({"" if key == BASE_DIALECT else key.split(":")[0].rsplit(".", 1)[1]
+                            for key in wanted})
+            if names and len(names) < 12:
+                cases = {"__dialects__": names}
+                estimate = full * (0.05 + len(names) / 34.0)
         if estimate >= policy.NEVER_RUN:
             expensive.append((number, seconds[number]))
             continue

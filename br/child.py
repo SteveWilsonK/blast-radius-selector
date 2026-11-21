@@ -255,7 +255,7 @@ def run(job, out_fd):
         # class and module fixtures still run once (TestSuite.run handles them).
         state = {"i": 0, "t0": 0.0}
 
-        def start(test, _state=state, _cases=cases):
+        def start(test, _state=state, _cases=cases, module=module):
             if not job.get("run_all") and (time.process_time() > budget or tracker.should_stop()):
                 raise OutOfBudget()
             upcoming = _cases[_state["i"]][0]
@@ -266,13 +266,20 @@ def run(job, out_fd):
             _state["t0"] = time.process_time()
             number = _cases[_state["i"]][0]
             active["cases"] = case_filter[number]
+            only = (case_filter[number] or {}).get("__dialects__")
+            if only is not None and hasattr(module, "Dialects"):
+                # Walk only the dialects the patch can reach (see DIALECT_LOOPS in main).
+                _state["dialects"] = module.Dialects
+                module.Dialects = [d for d in module.Dialects if d.value in only]
             limit = _cases[_state["i"]][2]
             if _timeouts[0]:
                 # One test already ran out of time: give the rest far less rope.
                 limit = min(limit, 2.0 + 4.0 * info[number][1])
             signal.setitimer(signal.ITIMER_PROF, limit)
 
-        def finish(test, _state=state, _cases=cases, _result=result, union=union):
+        def finish(test, _state=state, _cases=cases, _result=result, union=union, module=module):
+            if "dialects" in _state:
+                module.Dialects = _state.pop("dialects")
             # Between tests the class fixtures of the next one may run: keep an alarm.
             signal.setitimer(signal.ITIMER_PROF, _state["phase"] if not _timeouts[0] else 2.0)
             active["cases"] = union
