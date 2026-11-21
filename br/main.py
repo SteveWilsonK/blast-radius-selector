@@ -14,6 +14,8 @@ APP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SOURCE = os.environ.get("BR_SOURCE", "/opt/sqlglot")
 MAP = os.environ.get("BR_MAP", os.path.join(APP, "maps", "map.bin"))
 NO_EXEC = os.environ.get("BR_NO_EXEC") == "1"
+# Test classes that read their fixture files in setUpClass and keep the cases.
+CLASS_LOADED = ("tests/test_executor.py::TestExecutor",)
 # Scorer CPU seconds per second of the run costs stored in the map; measured at start.
 SPEED = 1.0
 # The scorer allows about 4.5 s of wall time per commit (3 min for 40, 4.5 min for 60).
@@ -22,6 +24,23 @@ WALL_PER_COMMIT = 4.0
 
 def log(*args):
     print(*args, file=sys.stderr, flush=True)
+
+
+def decide(selected, verdict):
+    """From what was run to what is selected.
+
+    verdict: number -> (status, cpu) for the tests handed to a child; status 0 passed,
+    1 failed, 3 not run. Candidates missing from it were never handed over (too costly
+    to run here). Returns (keep, failed, ran, unknown, expensive).
+    """
+    failed = [n for n in selected if verdict.get(n, (None,))[0] == 1]
+    ran = [n for n in selected if verdict.get(n, (3,))[0] in (0, 1)]
+    unknown = [n for n in selected if n in verdict and verdict[n][0] == 3]
+    expensive = [n for n in selected if n not in verdict]
+    keep = set(failed) | set(unknown)
+    if policy.select_expensive(len(ran), len(failed)):
+        keep |= set(expensive)
+    return keep, failed, ran, unknown, expensive
 
 
 def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
@@ -36,17 +55,20 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
             need = analyzer.needs(analysis, bit)
             if need is not None:
                 entry = maps.cases(bit)
-                total = sum(data["n"] for data in entry.values())
-                wanted = sum(entry[f]["n"] if v is None else (1 if v == "changed" else len(v))
-                             for f, v in need.items())
-                if total and wanted < total:
+                # Only fixtures the test works through case by case weigh on its run time.
+                tagged = [f for f, data in entry.items() if data.get("tagged")]
+                total = sum(entry[f]["n"] for f in tagged)
+                wanted = sum(entry[f]["n"] if need.get(f) is None else
+                             (1 if need[f] == "changed" else len(need[f])) for f in tagged)
+                limited = any(v is not None for v in need.values())
+                if limited and (not total or wanted < total):
                     cases = {f: (v if v is None or v == "changed" else sorted(v))
                              for f, v in need.items()}
-                    estimate = full * (0.05 + 0.95 * wanted / total)
+                    estimate = full * (0.05 + 0.95 * (wanted / total if total else 0.0))
         if estimate >= policy.NEVER_RUN:
             expensive.append((number, seconds[number]))
             continue
-        specs.append([number, id_of[number], max(4.0 * SPEED, full * SPEED * 10), seconds[number],
+        specs.append([number, id_of[number], (6.0 + full * 30) * SPEED, seconds[number],
                       estimate, cases, 0, full])
     if not specs:
         return None
@@ -55,10 +77,12 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
     by_class = {}
     for spec in specs:
         by_class.setdefault(spec[1].rsplit("::", 1)[0], []).append(spec)
-    for group in by_class.values():
+    for name, group in by_class.items():
         filtered = [s for s in group if s[5] is not None]
-        if filtered and len(filtered) < len(group):
-            if sum(s[7] - s[4] for s in filtered) > 1.5:
+        if filtered and len(filtered) < len(group) and name in CLASS_LOADED:
+            # This class loads its fixtures once for all its tests, so a test that
+            # needs every case would make the filtered ones walk them all.
+            if sum(s[7] - s[4] for s in filtered) > 1.0:
                 for s in group:
                     if s[5] is None:
                         s[6] = 1
@@ -159,14 +183,8 @@ def main():
         note = ""
         if commit in verdicts:
             verdict = verdicts[commit]
-            failed = [n for n in selected if verdict.get(n, (None,))[0] == 1]
-            ran = [n for n in selected if verdict.get(n, (3,))[0] in (0, 1)]
-            unknown = [n for n in selected if n in verdict and verdict[n][0] == 3]
-            expensive = [n for n in selected if n not in verdict]
+            keep, failed, ran, unknown, expensive = decide(selected, verdict)
             cpu = sum(v[1] for v in verdict.values())
-            keep = set(failed) | set(unknown)
-            if not ran or len(failed) / len(ran) >= policy.EXPENSIVE_SHARE:
-                keep |= set(expensive)
             total, imports, user, system = (verdicts.get("_stats", {}).get(commit, ()) + (0,) * 4)[:4]
             if os.environ.get("BR_DEBUG") == commit:
                 for n in failed:

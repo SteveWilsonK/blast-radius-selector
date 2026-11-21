@@ -81,6 +81,13 @@ class Analyzer:
                 self._tree[path] = None
         return self._tree[path]
 
+    def _at_load(self, path, first, last):
+        """Does sqlglot itself run any of these lines while its modules load?"""
+        found = self.maps.self_import.get(path)
+        if found is None:
+            return False
+        return any(line in found for line in range(first, last + 1))
+
     def subclasses(self, key):
         """Class keys whose base-class chain contains `key` (itself included)."""
         found = self._subclasses.get(key)
@@ -187,19 +194,30 @@ class Analyzer:
             return
         removed, added = patchlib.line_changes(fp)
         seen = set()
+        tables_done = self._tables_done = set()
         before = len(a.units)
         # Old statements that lost or changed lines.
         for old_line, new_position in removed:
             kind, first, last, classes, names = units.locate(tree, old_line)
             if kind is None or (first, last) in seen:
                 continue
-            seen.add((first, last))
             old_statement = units.statement_at(tree, old_line)
+            table = units.table_statement(old_statement) if kind == "import" and classes else None
+            entry = units.table_entry(table[1], old_line) if table else None
+            if entry is not None and entry[0] is not None:
+                mark = (first, last, entry[0])
+                if mark in seen:
+                    continue
+                seen.add(mark)
             new_first = new_position - (old_line - first)
             twin = units.statement_at(new_tree, new_first) if new_first > 0 else None
-            if kind != "func" or units.enclosing_function(tree, old_line) is None or True:
-                if twin is not None and units.signature(twin) == units.signature(old_statement):
-                    continue  # same statement, differently laid out or commented
+            if twin is not None and units.signature(twin) == units.signature(old_statement):
+                seen.add((first, last))
+                continue  # same statement, differently laid out or commented
+            if entry is not None and entry[0] is not None and self._table_entry(
+                    a, path, classes, table, entry, units.table_statement(twin)):
+                continue
+            seen.add((first, last))
             self._unit(a, path, kind, first, last, classes, names)
         # New lines: either part of a statement handled above, or a statement of their own.
         for new_line, old_position in added:
@@ -219,7 +237,7 @@ class Analyzer:
             touched_old = False
             for probe in (old_position, old_position - 1):
                 k, f, l, c, nm = units.locate(tree, probe) if probe > 0 else (None, 0, 0, [], [])
-                if k is not None and (f, l) in seen:
+                if k is not None and ((f, l) in seen or (f, l) in tables_done):
                     touched_old = True
             if touched_old:
                 continue  # already counted through the old statement it rewrites
@@ -252,6 +270,39 @@ class Analyzer:
                 self._unit(a, path, "import", anchor[0], anchor[1], new_classes, new_names)
         if len(a.units) == before:
             a.notes.append(f"noop:{path}")
+
+    def _table_entry(self, a, path, classes, table, entry, new_table):
+        """One entry of a class-level table changed. Returns False when the change
+        cannot be pinned to that entry and the whole statement must be handled."""
+        maps = self.maps
+        name, dict_node = table
+        key, is_lambda, first, last = entry
+        if new_table is None or new_table[0] != name:
+            return False
+        old_keys = units.table_keys(dict_node)
+        new_keys = units.table_keys(new_table[1])
+        if set(k for k in new_keys if k is not None) - set(k for k in old_keys if k is not None):
+            return False  # a key that was not there before: any test may now find it
+        if new_keys.count(None) != old_keys.count(None):
+            return False  # the tables this one is built from changed
+        statement = units.statement_at(self.tree(path), dict_node.lineno)
+        stmt_first = statement.lineno if statement is not None else dict_node.lineno
+        self._tables_done.add((stmt_first, dict_node.end_lineno))
+        if is_lambda:
+            # The entry is the lambda itself: the tests that call it.
+            a.units.append((path, "func", first, last))
+            self._function_unit(a, path, first, last)
+            return True
+        tag = f"{module_of(path)}:{'.'.join(classes)}|{name}|{key}"
+        if tag not in maps.wired:
+            return False  # not a callable entry, or the map does not follow it
+        callers = maps.wires.get(tag)
+        a.units.append((path, "entry", first, last))
+        if callers is not None:
+            a.strong |= maps.mask(callers)
+        a.specs.append(("wires", [tag], None, 0))
+        a.notes.append(f"entry:{tag}")
+        return True
 
     def _unit(self, a, path, kind, first, last, classes, names):
         if kind == "doc":
@@ -313,6 +364,9 @@ class Analyzer:
         # time means the value feeds other tables, so it cannot be pinned this way.
         readers = None
         places = []
+        # The value can only shape load-time state if a dialect built from this file
+        # is used while sqlglot loads (it parses a few defaults with the base dialect).
+        load_time = not family or bool(set(family) & maps.self_dialects)
         if names:
             readers = 0
             for name in names:
@@ -321,10 +375,15 @@ class Analyzer:
                     readers = None
                     break
                 for ref_path, ref_kind, ref_first, ref_last in found:
-                    if ref_kind != "func" or maps.lines(maps.imp, ref_path, ref_first, ref_last):
+                    if ref_kind == "merge":
+                        continue  # a subclass copying the table: read through the same name
+                    if ref_kind != "func" or (
+                            load_time and self._at_load(ref_path, ref_first, ref_last)):
                         readers = None
                         break
                     places.append((ref_path, ref_first, ref_last))
+                if readers is not None and not places:
+                    readers = None  # only copies, no reader found: cannot pin it down
                 if readers is None:
                     break
             if readers is not None:
@@ -391,7 +450,7 @@ class Analyzer:
                                 cid = rows.get(line)
                                 if cid is not None:
                                     found |= int.from_bytes(sets[cid], "little")
-                    if family and found and not (loose_users >> bit_index) & 1:
+                    if family and found:
                         used = 0
                         for key in family:
                             cid = data["dialects"].get(key)
@@ -399,7 +458,7 @@ class Analyzer:
                                 used |= int.from_bytes(sets[cid], "little")
                         found &= used
                 else:
-                    table = data["dialects"] if kind == "dialects" else data["classes"]
+                    table = data.get(kind) or {}
                     for key in what:
                         cid = table.get(key)
                         if cid is not None:

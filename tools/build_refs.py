@@ -3,7 +3,9 @@
 Usage: build_refs.py sqlglot_checkout out_file
 For every name assigned in a class body or at module level, lists the places that
 read it (`x.NAME`, a bare `NAME`, or "NAME" passed to getattr/hasattr), as the code
-unit containing the read: (file, kind, first_line, last_line).
+unit containing the read: (file, kind, first_line, last_line). kind is "func" for a
+read inside a function, "import" for one in a class or module body, and "merge" for a
+body statement that rebuilds the same name from another class's copy of it.
 """
 import ast
 import os
@@ -60,9 +62,13 @@ for path, tree in trees.items():
             name = node.value  # getattr(x, "NAME") and similar string lookups
         if name is None or name not in defined:
             continue
-        kind, first, last, _, _ = units.locate(tree, node.lineno)
+        kind, first, last, _, bound = units.locate(tree, node.lineno)
         if kind is None:
             continue
+        if kind == "import" and bound == [name]:
+            # A class body rebuilding the same table from its parent's
+            # (`X = {**Base.X, ...}`): a copy, read later through the same name.
+            kind = "merge"
         key = (name, kind, first, last)
         if key in seen:
             continue

@@ -10,7 +10,7 @@ import unittest
 
 ROW_READERS = ("test_execute_tpch", "test_execute_tpcds")
 # CPU seconds allowed for loading a test file plus its class set-up.
-PHASE_LIMIT = 6.0
+PHASE_LIMIT = 10.0
 
 
 class TestTimeout(BaseException):

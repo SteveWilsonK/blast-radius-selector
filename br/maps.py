@@ -9,8 +9,10 @@ class Maps:
         self.ids = data["ids"]
         for name in ("run", "loose", "imp", "pick", "pick_case", "run_body", "imp_body", "opened",
                      "imported", "dirs", "classes", "loose_classes", "dialects",
-                     "loose_dialects", "families", "mro"):
+                     "loose_dialects", "families", "mro", "wires", "self_import"):
             setattr(self, name, data.get(name) or {})
+        self.wired = frozenset(data.get("wired") or ())
+        self.self_dialects = frozenset(data.get("self_dialects") or ())
         self._cases = data.get("cases") or {}
         self._case_cache = {}
         self._sets = data["sets"]

@@ -17,6 +17,13 @@ START_COST = 0.15
 DATA_PRIOR = 0.9
 
 
+def select_expensive(ran, failed):
+    """Are the candidates too costly to run selected, given how the others fared?"""
+    if not ran:
+        return True  # nothing else could be asked
+    return failed / ran >= EXPENSIVE_SHARE
+
+
 def bound(total, biggest):
     """Cheapest schedule for tests summing to `total` seconds, longest `biggest`."""
     if total <= 0:
@@ -61,7 +68,7 @@ class Tracker:
             self.fail_max = max(self.fail_max, recorded)
 
     def expensive_selected(self):
-        return self.exp_sim > 0 and self.failed / self.ran >= EXPENSIVE_SHARE if self.ran else False
+        return self.exp_sim > 0 and self.ran > 0 and select_expensive(self.ran, self.failed)
 
     def should_stop(self):
         if self.todo_sim <= 1e-9:

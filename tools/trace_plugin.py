@@ -20,7 +20,7 @@ NAME = os.environ.get("TRACE_NAME") or os.environ.get("PYTEST_XDIST_WORKER", "ma
 TOOL = sys.monitoring.COVERAGE_ID
 DISABLE = sys.monitoring.DISABLE
 KEYS = ("lines", "blines", "plines", "files", "pyfiles", "dirs", "classes", "dialects",
-        "loose_classes", "loose_dialects")
+        "loose_classes", "loose_dialects", "wires")
 
 
 def _new():
@@ -103,6 +103,74 @@ def _audit(event, args):
                 _ctx["dirs"].add(path + "/")
 
 
+# ---- class-level tables --------------------------------------------------
+# sqlglot keeps much of each dialect in class-level dicts (FUNCTIONS, TRANSFORMS, ...)
+# whose values are callables. Those dicts are built once, when the module loads, so
+# line coverage cannot say which test uses which entry. Each callable entry is
+# therefore replaced, as its class is created, by a thin recorder that notes
+# "class | table | key" when called and then calls the original. Subclass tables that
+# copy an entry copy its recorder, so a call is credited to the class that defines it.
+
+import builtins
+import enum
+import functools
+
+_wired = set()
+_real_build_class = builtins.__build_class__
+
+
+def _canon(key):
+    if isinstance(key, str):
+        return key
+    if isinstance(key, type):
+        return key.__name__
+    if isinstance(key, enum.Enum):
+        return key.name
+    return None
+
+
+def _recorder(tag, value):
+    def wire(*args, **kwargs):
+        _ctx["wires"].add(tag)
+        if _case is not None:
+            _case["wires"].add(tag)
+        return value(*args, **kwargs)
+
+    try:
+        functools.update_wrapper(wire, value)
+    except Exception:
+        pass
+    wire.__br_wire__ = tag
+    return wire
+
+
+def _build_class(func, name, *bases, **kwargs):
+    cls = _real_build_class(func, name, *bases, **kwargs)
+    try:
+        if cls.__module__.startswith("sqlglot."):
+            owner = cls.__module__ + ":" + cls.__qualname__
+            for attr, table in list(vars(cls).items()):
+                if type(table) is not dict or attr.startswith("__"):
+                    continue
+                for key, value in list(table.items()):
+                    if isinstance(value, type) or not callable(value):
+                        continue
+                    if getattr(value, "__br_wire__", None):
+                        continue
+                    canon = _canon(key)
+                    if canon is None:
+                        continue
+                    tag = f"{owner}|{attr}|{canon}"
+                    table[key] = _recorder(tag, value)
+                    _wired.add(tag)
+    except Exception:
+        pass
+    return cls
+
+
+builtins.__build_class__ = _build_class
+
+
 # ---- fixture cases -------------------------------------------------------
 
 _tags = {}      # id(meta dict) -> (fixture, index); the dicts are kept alive in _keep
@@ -119,7 +187,8 @@ def _switch(case_key):
         _pending = set()
     else:
         _case = _ctx["cases"].setdefault(
-            case_key, {"lines": set(), "plines": set(), "dialects": set(), "classes": set()})
+            case_key, {"lines": set(), "plines": set(), "dialects": set(), "classes": set(),
+                       "wires": set()})
         if _pending:
             _case["lines"] |= _pending
         _pending = None
@@ -296,15 +365,16 @@ def _emit(test, phase, ctx):
         record[key] = _pack(ctx[key])
     for key in ("files", "pyfiles", "dirs"):
         record[key] = sorted(p[len(ROOT):] for p in ctx[key])
-    for key in ("classes", "dialects", "loose_classes", "loose_dialects"):
+    for key in ("classes", "dialects", "loose_classes", "loose_dialects", "wires"):
         record[key] = sorted(ctx[key])
     record["cases"] = [
         [fixture, index, _pack(case["lines"]), sorted(case["dialects"]), sorted(case["classes"]),
-         _pack(case["plines"])]
+         _pack(case["plines"]), sorted(case["wires"])]
         for (fixture, index), case in ctx["cases"].items()
     ]
     if phase == "import":
         record["mro"] = _mro
+        record["wired"] = sorted(_wired)
     _out.write(json.dumps(record) + "\n")
     _out.flush()
 

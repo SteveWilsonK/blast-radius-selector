@@ -1,6 +1,6 @@
 """Fold the per-test traces into the map the selector loads.
 
-Usage: build_map.py tests.json trace_dir out_file [costs.json] [families.json]
+Usage: build_map.py tests.json trace_dir out_file [costs.json] [families.json] [self_import.json]
 The map is keyed by test id, so it does not depend on tests.json numbering.
 """
 import collections
@@ -13,6 +13,7 @@ tests = json.load(open(sys.argv[1]))["tests"]
 trace_dir, out_file = sys.argv[2], sys.argv[3]
 costs = json.load(open(sys.argv[4])) if len(sys.argv) > 4 else {}
 families = json.load(open(sys.argv[5])) if len(sys.argv) > 5 else {}
+self_import = json.load(open(sys.argv[6])) if len(sys.argv) > 6 else {}
 ids = [t["id"] for t in tests]
 NBYTES = (len(ids) + 7) // 8
 
@@ -25,7 +26,8 @@ def table():
 LINE_TABLES = ("run", "loose", "imp", "pick", "pick_case", "run_body", "imp_body")
 lines = {name: table() for name in LINE_TABLES}
 KEY_TABLES = ("opened", "imported", "dirs", "classes", "loose_classes", "dialects",
-              "loose_dialects")
+              "loose_dialects", "wires")
+wired = set()
 keyed = {name: collections.defaultdict(int) for name in KEY_TABLES}
 mro = {}
 cases = {}   # test index -> packed blob
@@ -44,6 +46,7 @@ for i, tid in enumerate(ids):
         rec = json.loads(raw)
         if rec["phase"] == "import":
             mro.update(rec.get("mro") or {})
+            wired.update(rec.get("wired") or ())
         records.append((i, rec))
         break_after = False
     # keep memory flat: fold as we go
@@ -63,17 +66,20 @@ for i, tid in enumerate(ids):
         add(lines["pick"], rec["plines"], bit)
         for name, field in (("opened", "files"), ("imported", "pyfiles"), ("dirs", "dirs"),
                             ("loose_dialects", "loose_dialects"), ("dialects", "dialects"),
-                            ("classes", "classes"), ("loose_classes", "loose_classes")):
-            for key in rec[field]:
+                            ("classes", "classes"), ("loose_classes", "loose_classes"),
+                            ("wires", "wires")):
+            for key in rec.get(field) or ():
                 keyed[name][key] |= bit
         if rec["cases"]:
             per_fixture = {}
             for case in rec["cases"]:
                 fixture, index, case_lines, case_dialects, case_classes = case[:5]
                 case_pickled = case[5] if len(case) > 5 else {}
+                case_wires = case[6] if len(case) > 6 else ()
                 entry = per_fixture.setdefault(
                     fixture, {"n": 0, "lines": table(), "dialects": collections.defaultdict(int),
-                              "classes": collections.defaultdict(int)})
+                              "classes": collections.defaultdict(int),
+                              "wires": collections.defaultdict(int)})
                 entry["n"] = max(entry["n"], index + 1)
                 cbit = 1 << index
                 add(entry["lines"], case_lines, cbit)
@@ -84,6 +90,8 @@ for i, tid in enumerate(ids):
                     entry["dialects"][key] |= cbit
                 for key in case_classes:
                     entry["classes"][key] |= cbit
+                for key in case_wires:
+                    entry["wires"][key] |= cbit
             packed = {}
             for fixture, entry in per_fixture.items():
                 nb = (entry["n"] + 7) // 8
@@ -105,6 +113,7 @@ for i, tid in enumerate(ids):
                               for fn, rows in entry["lines"].items()},
                     "dialects": {k: cid(m) for k, m in entry["dialects"].items()},
                     "classes": {k: cid(m) for k, m in entry["classes"].items()},
+                    "wires": {k: cid(m) for k, m in entry["wires"].items()},
                     "sets": table_,
                 }
             cases[i2] = zlib.compress(pickle.dumps(packed, protocol=5), 6)
@@ -135,6 +144,10 @@ data = {
     "cost": [costs.get(tid) for tid in ids],  # CPU seconds in the in-process runner
     "families": families,
     "mro": mro,
+    "self_import": {path: frozenset(found)
+                    for path, found in (self_import.get("lines") or {}).items()},
+    "self_dialects": sorted(self_import.get("dialects") or ()),
+    "wired": sorted(wired),
     "cases": cases,
     "sets": set_table,
 }

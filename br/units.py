@@ -50,7 +50,12 @@ def locate(tree, line):
             if compound:
                 end = _header_end(node)
                 if line <= end:
-                    unit = (kind, _start(node), end)
+                    if isinstance(node, FUNCS) and line >= node.lineno:
+                        # The def line itself (parameters and their defaults): it takes
+                        # effect when the function is called, so it goes with its body.
+                        unit = ("func", node.lineno, node.end_lineno)
+                    else:
+                        unit = (kind, _start(node), end)
                     statement = node
                     break
                 if isinstance(node, FUNCS):
@@ -142,3 +147,43 @@ def enclosing_function(tree, line):
         if isinstance(node, FUNCS + (ast.Lambda,)):
             best = (node.lineno, node.end_lineno)
     return best
+
+
+def _canon(node):
+    """A table key as the recorder names it: the string, class name or enum member name."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    if isinstance(node, ast.Name):
+        return node.id
+    return None
+
+
+def table_statement(statement):
+    """(name, dict node) when a class-level statement binds one name to a dict display."""
+    if isinstance(statement, ast.Assign) and len(statement.targets) == 1:
+        target, value = statement.targets[0], statement.value
+    elif isinstance(statement, ast.AnnAssign):
+        target, value = statement.target, statement.value
+    else:
+        return None
+    if isinstance(target, ast.Name) and isinstance(value, ast.Dict):
+        return target.id, value
+    return None
+
+
+def table_keys(dict_node):
+    """Canonical keys of a dict display; None for entries that cannot be named (**spread)."""
+    return [None if key is None else _canon(key) for key in dict_node.keys]
+
+
+def table_entry(dict_node, line):
+    """The entry of a dict display holding `line`: (key, is_lambda, first, last), or None."""
+    for key, value in zip(dict_node.keys, dict_node.values):
+        first = value.lineno if key is None else key.lineno
+        if first <= line <= value.end_lineno:
+            if key is None:
+                return None
+            return _canon(key), isinstance(value, ast.Lambda), value.lineno, value.end_lineno
+    return None
