@@ -14,8 +14,11 @@ tests = json.load(open(sys.argv[1]))["tests"]
 by_file = {}
 for t in tests:
     by_file.setdefault(t["id"].split("::")[0], []).append(t)
-jobs = [{"key": path, "root": os.environ.get("BR_SOURCE", "/opt/sqlglot"), "files": {},
-         "pickle": False, "tests": [(t["number"], t["id"], 300.0, 0.0, 0.0) for t in group]}
+only = os.environ.get("ONLY")
+if only:
+    by_file = {p: g for p, g in by_file.items() if only in p}
+jobs = [{"key": path, "lazy": os.environ.get("LAZY", "1") == "1", "root": os.environ.get("BR_SOURCE", "/opt/sqlglot"), "files": {},
+         "pickle": False, "tests": [(t["number"], t["id"], 300.0, 0.0, 0.0, None, 0) for t in group]}
         for path, group in by_file.items()]
 results = run_jobs(jobs, parallel=int(os.environ.get("JOBS", "4")))
 out = {}

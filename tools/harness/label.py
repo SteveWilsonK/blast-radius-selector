@@ -56,7 +56,9 @@ for name in names[first:last]:
         print(f"{name}: patch does not apply", file=sys.stderr)
         continue
     jobs = [{"key": path, "root": root, "files": files, "pickle": True,
-             "tests": [(t["number"], t["id"], max(60.0, t["seconds"] * 4), 0.0, 0.0) for t in group]}
+             "lazy": False,
+             "tests": [(t["number"], t["id"], max(60.0, t["seconds"] * 4), 0.0, 0.0, None, 0)
+                       for t in group]}
             for path, group in by_file.items()]
     # Heaviest files first so the pool stays busy.
     jobs.sort(key=lambda job: -sum(t["seconds"] for t in by_file[job["key"]]))

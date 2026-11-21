@@ -50,6 +50,20 @@ def module_name(rel_path):
     return ".".join(parts), is_package
 
 
+_bypass = [False]
+
+
+class original:
+    """Inside this block, open() reads the files as they are at the pinned commit."""
+
+    def __enter__(self):
+        _bypass[0] = True
+
+    def __exit__(self, *exc):
+        _bypass[0] = False
+        return False
+
+
 def install(root, files):
     """files: relative path -> new text (str), or None for a file the patch removes."""
     modules = {}
@@ -72,7 +86,7 @@ def install(root, files):
                     path = os.fsdecode(path)
                 if not path.startswith("/"):
                     path = os.path.abspath(path)
-                if path in data:
+                if path in data and not _bypass[0]:
                     content = data[path]
                     if content is None:
                         raise FileNotFoundError(2, "No such file or directory", path)

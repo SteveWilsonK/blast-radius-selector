@@ -28,12 +28,16 @@ class Analysis:
         self.data_changed = []    # (path, new_text or None)
         self.notes = []
         self.units = []           # (path, kind, first, last)
+        self.changed_fixtures = {}  # fixture name -> tests that read the patched file
 
     @property
     def data_only(self):
         """Every effective change is in a data file some test reads."""
         return bool(self.data_changed) and not self.units and not self.everything and all(
             note.startswith(("read:", "noop:")) for note in self.notes)
+
+
+FIXTURES = "tests/fixtures/"
 
 
 def module_of(path):
@@ -98,7 +102,12 @@ class Analyzer:
                 if key is not None:
                     readers = maps.mask(key)
                     a.strong |= readers
-                    a.whole |= readers
+                    if path.startswith(FIXTURES) and fp.old_path == fp.new_path:
+                        # Tests that walk it case by case only need the cases that changed.
+                        name = path[len(FIXTURES):]
+                        a.changed_fixtures[name] = a.changed_fixtures.get(name, 0) | readers
+                    else:
+                        a.whole |= readers
                     a.notes.append(f"read:{path}")
             if fp.old_path is None or fp.new_path is None or fp.old_path != fp.new_path:
                 # Files appearing, disappearing or moving are seen by tests that list
@@ -357,11 +366,18 @@ class Analyzer:
         entry = self.maps.cases(bit_index)
         if entry is None:
             return None
+        for fixture, readers in a.changed_fixtures.items():
+            if (readers >> bit_index) & 1 and fixture not in entry:
+                return None  # reads the patched file some other way than case by case
         result = {}
         for fixture, data in entry.items():
+            if (a.changed_fixtures.get(fixture, 0) >> bit_index) & 1:
+                result[fixture] = "changed"
+                continue
             if not data.get("tagged"):
                 # The test walks this fixture in a way the map could not split by case.
-                result[fixture] = None
+                # With no code change, cases of an untouched fixture cannot differ.
+                result[fixture] = None if a.specs else set()
                 continue
             sets = data["sets"]
             mask = 0

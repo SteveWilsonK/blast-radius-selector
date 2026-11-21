@@ -8,6 +8,11 @@ import time
 import unittest
 
 
+ROW_READERS = ("test_execute_tpch", "test_execute_tpcds")
+# CPU seconds allowed for loading a test file plus its class set-up.
+PHASE_LIMIT = 6.0
+
+
 class TestTimeout(BaseException):
     pass
 
@@ -66,13 +71,6 @@ def run(job, out_fd):
     Writes one JSON line per test: [number, failed(0/1/2=timeout), cpu_seconds].
     """
     out = os.fdopen(out_fd, "w", buffering=1)
-    try:
-        import resource
-
-        # A runaway patch must not take the container's memory with it.
-        resource.setrlimit(resource.RLIMIT_AS, (3 << 30, 3 << 30))
-    except Exception:  # noqa: BLE001
-        pass
     devnull = os.open(os.devnull, os.O_WRONLY)
     os.dup2(devnull, 1)
     os.dup2(devnull, 2)
@@ -102,6 +100,19 @@ def run(job, out_fd):
                     if allowed is None:
                         yield from original(filename)
                         return
+                    if allowed == "changed":
+                        # The fixture itself was patched: only the cases that differ
+                        # from the pinned file can behave differently.
+                        patched = list(original(filename))
+                        with overlay.original():
+                            pinned = list(original(filename))
+                        if len(patched) != len(pinned):
+                            yield from patched
+                        else:
+                            for new_item, old_item in zip(patched, pinned):
+                                if new_item != old_item:
+                                    yield new_item
+                        return
                     if not allowed:
                         return
                     for index, item in enumerate(original(filename)):
@@ -121,7 +132,8 @@ def run(job, out_fd):
 
     info = {t[0]: (t[3], t[4]) for t in job["tests"]}
     case_filter = {t[0]: (None if t[5] is None else
-                          {f: (None if v is None else frozenset(v)) for f, v in t[5].items()})
+                          {f: (v if v is None or v == "changed" else frozenset(v))
+                           for f, v in t[5].items()})
                    for t in job["tests"]}
     tracker = Tracker([(t[0], t[3], t[4]) for t in job["tests"]], job.get("expensive", ()),
                       job.get("speed", 1.0), job.get("prior"))
@@ -143,12 +155,25 @@ def run(job, out_fd):
                 out.write(json.dumps([number, 3, 0.0]) + "\n")
             continue
         module_name = path[:-3].replace("/", ".")
+        phase_limit = PHASE_LIMIT * job.get("speed", 1.0) if not _timeouts[0] else 2.0
         try:
             t_import = time.process_time()
+            # Loading a test file or setting up its class can hang on a patched helper:
+            # the CPU alarm covers that too, not only the test bodies.
+            signal.setitimer(signal.ITIMER_PROF, phase_limit)
             module = importlib.import_module(module_name)
             cls = getattr(module, cls_name)
+            signal.setitimer(signal.ITIMER_PROF, 0)
             import_cpu += time.process_time() - t_import
+            if job.get("lazy", True) and path not in job["files"]:
+                from . import lazy
+
+                # The row tables are read only by the two tests that run the TPC
+                # queries through sqlglot's own executor.
+                rows = any(method in ROW_READERS for _, method, _ in items)
+                lazy.install(module, cls, rows)
         except BaseException:  # noqa: BLE001 - the file cannot be imported: its tests fail
+            signal.setitimer(signal.ITIMER_PROF, 0)
             for number, _, _ in items:
                 out.write(json.dumps([number, 1, 0.0]) + "\n")
             continue
@@ -160,10 +185,15 @@ def run(job, out_fd):
                 union = None
                 break
             for fixture, allowed in cases.items():
-                if allowed is None or union.get(fixture, ()) is None:
+                have = union.get(fixture, frozenset())
+                if allowed is None or have is None:
                     union[fixture] = None
+                elif allowed == "changed" or have == "changed":
+                    # "changed" only mixes with itself or with nothing.
+                    union[fixture] = "changed" if (not have or have == "changed") and (
+                        allowed == "changed" or not allowed) else None
                 else:
-                    union[fixture] = union.get(fixture, frozenset()) | allowed
+                    union[fixture] = have | allowed
         active["cases"] = union
         result = _Result()
         suite = unittest.TestSuite()
@@ -194,7 +224,8 @@ def run(job, out_fd):
             signal.setitimer(signal.ITIMER_PROF, limit)
 
         def finish(test, _state=state, _cases=cases, _result=result, union=union):
-            signal.setitimer(signal.ITIMER_PROF, 0)
+            # Between tests the class fixtures of the next one may run: keep an alarm.
+            signal.setitimer(signal.ITIMER_PROF, _state["phase"] if not _timeouts[0] else 2.0)
             active["cases"] = union
             number, case, _ = _cases[_state["i"]]
             _state["i"] += 1
@@ -210,7 +241,9 @@ def run(job, out_fd):
         for _, case, _ in cases:
             suite.addTest(case)
         unrun = 1  # tests never reached (class fixture failed, suite died): they fail
+        state["phase"] = phase_limit
         try:
+            signal.setitimer(signal.ITIMER_PROF, phase_limit)
             suite.run(result)
         except OutOfBudget:
             unrun = 3  # not run at all: the caller decides

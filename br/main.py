@@ -37,14 +37,16 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
             if need is not None:
                 entry = maps.cases(bit)
                 total = sum(data["n"] for data in entry.values())
-                wanted = sum(entry[f]["n"] if v is None else len(v) for f, v in need.items())
+                wanted = sum(entry[f]["n"] if v is None else (1 if v == "changed" else len(v))
+                             for f, v in need.items())
                 if total and wanted < total:
-                    cases = {f: (None if v is None else sorted(v)) for f, v in need.items()}
+                    cases = {f: (v if v is None or v == "changed" else sorted(v))
+                             for f, v in need.items()}
                     estimate = full * (0.05 + 0.95 * wanted / total)
         if estimate >= policy.NEVER_RUN:
             expensive.append((number, seconds[number]))
             continue
-        specs.append([number, id_of[number], max(10.0, full * SPEED * 10), seconds[number],
+        specs.append([number, id_of[number], max(4.0 * SPEED, full * SPEED * 10), seconds[number],
                       estimate, cases, 0, full])
     if not specs:
         return None
@@ -71,7 +73,7 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
             f"filtered, {len(expensive)} never run")
         for s in sorted(specs, key=lambda s: -s[7])[:10]:
             cases = "whole" if s[5] is None else (
-                f"{sum(len(v) for v in s[5].values() if v is not None)} cases")
+                f"{sum(1 if v == 'changed' else len(v) for v in s[5].values() if v is not None)} cases")
             log(f"    {s[7]:.2f}s -> {s[4]:.2f}s {cases} part{s[6]} {s[1].split('::', 1)[1]}")
     prior = policy.DATA_PRIOR if analysis.data_only else None
     if prior is not None and policy.Tracker(
@@ -175,6 +177,7 @@ def main():
                     f"ran {len(ran)} ({cpu:.2f}s cpu), failed {len(failed)}, "
                     f"unrun {len(unknown)}, costly {len(expensive)}")
             selected = sorted(keep)
+        selected = sorted(set(selected))
         cost, workers = split(selected, ms)
         # Idle time on the less busy workers is free: spend it on the candidates that
         # were left out, least certain first (never run, then run and passed).
@@ -209,5 +212,21 @@ def main():
         f"= {total_cost / 1000 + cpu:.2f}")
 
 
+def emergency():
+    """Last resort: a valid answer that cannot miss, if anything above went wrong."""
+    tests = json.load(open(os.path.join(DATA, "tests.json")))["tests"]
+    ms = {t["number"]: int(t["seconds"] * 1000 + 0.5) for t in tests}
+    _, workers = split([t["number"] for t in tests], ms)
+    commit_dir = os.path.join(DATA, "commits")
+    lines = [json.dumps({"commit": name[:-6], "workers": workers}, separators=(",", ":"))
+             for name in sorted(os.listdir(commit_dir)) if name.endswith(".patch")]
+    sys.stdout.write("\n".join(lines) + ("\n" if lines else ""))
+    sys.stdout.flush()
+
+
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as error:  # noqa: BLE001
+        log(f"selector failed ({error!r}); answering with every test")
+        emergency()
