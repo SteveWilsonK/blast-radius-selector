@@ -57,8 +57,7 @@ for i, tid in enumerate(ids):
             add(lines["imp_body"], rec["blines"], bit)
             for p in rec["files"]:
                 keyed["opened"][p] |= bit
-            for p in rec["dirs"]:
-                keyed["dirs"][p] |= bit
+            # Folders listed before the test starts are pytest collecting, not the test.
             continue
         add(lines["run"], rec["lines"], bit)
         add(lines["loose"], rec["lines"], bit)

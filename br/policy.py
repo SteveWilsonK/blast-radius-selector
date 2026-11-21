@@ -106,14 +106,18 @@ def _loop():
 
 
 def machine_speed():
-    """How much slower this machine is than the one the run costs come from."""
+    """How much slower this machine is than the one the run costs come from.
+
+    The fastest of several short loops, so a busy neighbour cannot inflate it, and
+    kept within a band so that one odd reading cannot swing the decisions.
+    """
     import time
 
     best = None
-    for _ in range(6):
+    for _ in range(12):
         started = time.process_time()
         _loop()
         took = time.process_time() - started
         if best is None or took < best:
             best = took
-    return max(0.6, min(4.0, best / REFERENCE_LOOP))
+    return max(0.7, min(1.8, best / REFERENCE_LOOP))

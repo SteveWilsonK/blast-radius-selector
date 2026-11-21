@@ -105,6 +105,11 @@ class Analyzer:
         a = Analysis()
         for fp in patchlib.parse(patch_text):
             paths = [p for p in {fp.old_path, fp.new_path} if p]
+            if any(os.path.basename(p) in ("conftest.py", "pytest.ini", "tox.ini") for p in paths):
+                # pytest itself reads these; the in-process runner cannot stand in for it.
+                a.everything = True
+                a.notes.append(f"pytest-config:{paths[0]}")
+                continue
             for path in paths:
                 key = maps.opened.get(path)
                 if key is not None:
@@ -172,6 +177,19 @@ class Analyzer:
             new_text = patchlib.apply(old_text, fp)
         a.py_changed.append((path, new_text))
         if not known:
+            if os.path.basename(path) == "__init__.py":
+                # An empty package file gaining code: it runs for every test that
+                # loads anything from the package.
+                prefix = os.path.dirname(path) + "/"
+                loaders = 0
+                for table in tables:
+                    for other in table:
+                        if other.startswith(prefix):
+                            loaders |= maps.file_any(table, other)
+                a.strong |= loaders
+                a.whole |= loaders
+                a.notes.append(f"package:{path}")
+                return
             a.notes.append(f"unmapped:{path}")
             return
         if moved or new_text is None:
@@ -183,7 +201,8 @@ class Analyzer:
             return
         tree = self.tree(path)
         try:
-            new_tree = ast.parse(new_text)
+            # A byte-order mark is legal at the top of a source file.
+            new_tree = ast.parse(new_text[1:] if new_text.startswith("\ufeff") else new_text)
         except (SyntaxError, ValueError, RecursionError, MemoryError):
             loaders = self._loaders(path)
             a.strong |= loaders

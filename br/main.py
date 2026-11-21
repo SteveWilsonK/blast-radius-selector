@@ -74,7 +74,7 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
         if estimate >= policy.NEVER_RUN:
             expensive.append((number, seconds[number]))
             continue
-        specs.append([number, id_of[number], (6.0 + full * 30) * SPEED, seconds[number],
+        specs.append([number, id_of[number], (5.0 + full * 25) * SPEED, seconds[number],
                       estimate, cases, 0, full])
     if not specs:
         return None
