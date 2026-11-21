@@ -22,7 +22,7 @@ trace_dir, out_file = sys.argv[2], sys.argv[3]
 costs = json.load(open(sys.argv[4])) if len(sys.argv) > 4 else {}
 families = json.load(open(sys.argv[5])) if len(sys.argv) > 5 else {}
 self_import = json.load(open(sys.argv[6])) if len(sys.argv) > 6 else {}
-body_dir = sys.argv[7] if len(sys.argv) > 8 else None
+body_dir = sys.argv[7] if len(sys.argv) > 8 and sys.argv[7] != "-" else None   # "-": leave them out
 checkout = sys.argv[8] if len(sys.argv) > 8 else None
 ids = [t["id"] for t in tests]
 NBYTES = (len(ids) + 7) // 8
