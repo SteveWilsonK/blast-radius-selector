@@ -228,6 +228,8 @@ def refine(plans, texts, analyzer, maps, cost_of, seconds, started, count):
                 log(f"  changed {result.get('changed')}\n  added {result.get('added')}\n"
                     f"  removed {result.get('removed')}")
             continue
+        if os.environ.get("BR_TAGS"):
+            log("TAGS " + commit + " " + json.dumps(tags))
         try:
             analysis = analyzer.analyze(texts[commit], state=tags)
         except Exception as error:  # noqa: BLE001
@@ -316,7 +318,8 @@ def main():
             return 1 if time.time() < hurry else 2
 
         try:
-            verdicts = run_guarded(jobs, width, deadline, preload, log, warm=WARM)
+            verdicts = run_guarded(jobs, width, deadline, preload, log, warm=WARM,
+                                   adapt=policy.ADAPT and not os.environ.get("BR_SPEED"))
             if len(verdicts) <= 1 and len(preload) > 2:
                 # Nothing came back: a shared library may not load here. Let each
                 # child load what it needs on its own instead.

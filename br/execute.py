@@ -9,7 +9,7 @@ import time
 from . import child
 
 
-def run_guarded(jobs, parallel, deadline, preload, log=lambda *a: None, warm=()):
+def run_guarded(jobs, parallel, deadline, preload, log=lambda *a: None, warm=(), adapt=False):
     """Run the jobs in a helper process and stream each finished job back.
 
     The helper loads the heavy libraries and forks the test children, so a crash in
@@ -37,15 +37,18 @@ def run_guarded(jobs, parallel, deadline, preload, log=lambda *a: None, warm=())
                     os.chdir(root)
                     if root not in sys.path:
                         sys.path.insert(0, root)
+                    before = time.process_time()
                     for name in warm:
                         __import__(name)
+                    took = time.process_time() - before
+                    log(f"warm import took {took:.3f}s")
                 except Exception:  # noqa: BLE001
                     pass
 
             def done(key, verdicts, stats):
                 out.write(json.dumps([key, {str(n): v for n, v in verdicts.items()}, stats]) + "\n")
 
-            run_jobs(jobs, parallel=parallel, log=log, on_done=done)
+            run_jobs(jobs, parallel=parallel, log=log, on_done=done, adapt=adapt)
             out.flush()
         except BaseException:  # noqa: BLE001
             code = 1
@@ -90,7 +93,7 @@ def run_guarded(jobs, parallel, deadline, preload, log=lambda *a: None, warm=())
     return results
 
 
-def run_jobs(jobs, parallel=2, log=lambda *a: None, on_done=None):
+def run_jobs(jobs, parallel=2, log=lambda *a: None, on_done=None, adapt=False):
     """jobs: list of job dicts (see child.run) with a "key". Returns key -> {number: (status, cpu)}.
 
     status: 0 passed, 1 failed, 3 not run. A child that dies or hangs fails the
@@ -99,6 +102,10 @@ def run_jobs(jobs, parallel=2, log=lambda *a: None, on_done=None):
     results = {job["key"]: {} for job in jobs}
     stats = results.setdefault("_stats", {})
     pending = list(jobs)[::-1]
+    # With `adapt`, the price of a CPU second is learnt from the tests themselves:
+    # what whole, passing tests cost here against what they cost where the run costs
+    # were measured. The first jobs go by the estimate they were planned with.
+    spent = expected = 0.0
     active = {}  # read fd -> state
     while pending or active:
         # `parallel` may be a function of the time: one child at a time while there is
@@ -174,6 +181,18 @@ def run_jobs(jobs, parallel=2, log=lambda *a: None, on_done=None):
                             res[n] = (1 if first else 3, 0.0)
                             first = False
                 del active[fd]
+                if adapt:
+                    for test in st["job"]["tests"]:
+                        verdict = res.get(test[0])
+                        if verdict and verdict[0] == 0 and test[5] is None and test[4] >= 0.002:
+                            spent += verdict[1]
+                            expected += test[4]
+                    if expected >= 0.05:
+                        prior = st["job"].get("speed", 1.0)
+                        learnt = max(0.7, min(6.0, (prior * 0.3 + spent) / (0.3 + expected)))
+                        for job in pending:
+                            job["speed"] = learnt
+                        stats["_speed"] = (round(learnt, 2), round(expected, 2))
                 if on_done is not None:
                     key = st["job"]["key"]
                     on_done(key, res, stats.get(key))

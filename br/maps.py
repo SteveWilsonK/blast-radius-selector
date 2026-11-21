@@ -43,6 +43,20 @@ class Maps:
         self._case_cache = {}
         self._sets = data["sets"]
         self._masks = {}
+        # Reads of class-level values may come from their own, newer file.
+        self.reads_version = 2
+        import os
+
+        extra = os.path.join(os.path.dirname(path), "reads.bin")
+        if os.path.exists(extra):
+            more = pickle.loads(zlib.decompress(open(extra, "rb").read()))
+            if more.get("ids") == self.ids:
+                base = len(self._sets)
+                self._sets = list(self._sets) + list(more["sets"])
+                self.reads = {tag: base + key for tag, key in more["reads"].items()}
+                self.tracked = frozenset(more["tracked"])
+                self.shared = more["shared"]
+                self.reads_version = more.get("version", 2)
         number_of = {t["id"]: t["number"] for t in tests}
         # bit position in the map -> test number in this run (None when the test is gone)
         self.number = [number_of.get(tid) for tid in self.ids]

@@ -144,6 +144,10 @@ class Analyzer:
             return None
         tags = set()
 
+        from .state import miss_group_of_name
+
+        grouped = maps.reads_version >= 3   # missing-key lookups filed by group of keys
+
         def entry(key, marks):
             """A class-level value or one entry of a class-level dict."""
             if "\t" in key or "|" not in key:
@@ -158,7 +162,15 @@ class Analyzer:
             else:
                 name = "|".join(parts[2:])
                 for mark in marks:
-                    tags.add(holder + "|" + (name if mark == "key" else mark))
+                    if mark == "key":
+                        tags.add(holder + "|" + name)
+                    elif mark == "!" and grouped:
+                        # Tests that looked for a key of this one's group and found none,
+                        # and those whose missing key had no stable name.
+                        tags.add(holder + "|!" + miss_group_of_name(name))
+                        tags.add(holder + "|!")
+                    else:
+                        tags.add(holder + "|" + mark)
             return True
 
         for key in result.get("changed") or ():
@@ -180,7 +192,7 @@ class Analyzer:
         for key in result.get("added") or ():
             if key.endswith("\tcode"):
                 key = key[:-5]
-            if key.count("|") < 2 or not entry(key, ("!", "#", "*")):
+            if key.count("|") < 2 or not entry(key, ("key", "!", "#", "*")):
                 return None
         if not tags:
             return None       # nothing visible changed: do not conclude from silence

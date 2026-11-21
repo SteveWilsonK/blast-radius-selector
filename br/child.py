@@ -12,6 +12,9 @@ ROW_READERS = ("test_execute_tpch", "test_execute_tpcds")
 DEBUG_FILE = os.environ.get("BR_FAILURES")  # development only: where to write tracebacks
 # CPU seconds allowed for loading a test file plus its class set-up.
 PHASE_LIMIT = 10.0
+# Development only: report tests as this many times slower, to see how the run-or-select
+# rules behave on a slower machine without having one.
+SLOW = float(os.environ.get("BR_SLOW") or 1.0)
 
 
 class TestTimeout(BaseException):
@@ -348,7 +351,7 @@ def run(job, out_fd):
             active["cases"] = union
             number, case, _ = _cases[_state["i"]]
             _state["i"] += 1
-            cpu = time.process_time() - _state["t0"]
+            cpu = (time.process_time() - _state["t0"]) * SLOW
             failed = 1 if case.id() in _result.bad else 0
             out.write(json.dumps([number, failed, round(cpu, 4)]) + "\n")
             _state["reported"] = _state.get("reported", 0) + 1

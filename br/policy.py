@@ -3,10 +3,13 @@
 Costs are in scorer seconds. A candidate can be run here (its CPU time is charged
 once) or selected without running (it then weighs on the simulated schedule).
 """
+import os
 WORKER = 2.0
 MAX_WORKERS = 8
 # A test this costly to run here is never run: it is selected or left out on evidence.
 NEVER_RUN = 5.0
+# Learn the price of a CPU second from the tests as they run (off until checked).
+ADAPT = os.environ.get("BR_ADAPT") == "1"
 # Share of run candidates that must fail before unrun costly candidates are selected.
 EXPENSIVE_SHARE = 0.08
 # Passing tests to see before the rest may be selected unrun.
@@ -95,10 +98,18 @@ class Tracker:
             share = self.prior
         else:
             share = (self.failed + 0.2) / (self.ran + 1.0)
-        run = self.todo_cpu * self.speed + share * blind
+        price = self.price()
+        run = self.todo_cpu * price + share * blind
         if not self.ran:
-            run += START_COST * self.speed
+            run += START_COST * price
         return blind <= run
+
+    def price(self):
+        """CPU seconds a second of run cost takes here: what the tests run so far in
+        this child really took, leaning on the given estimate until enough has run."""
+        if not ADAPT or self.predicted < 0.02:
+            return self.speed
+        return max(0.7, min(8.0, (self.speed * 0.15 + self.measured) / (0.15 + self.predicted)))
 
 
 # Seconds the loop below took on the machine the run costs were measured on.

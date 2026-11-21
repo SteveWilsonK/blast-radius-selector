@@ -45,6 +45,21 @@ def canon_key(key):
     return None
 
 
+def miss_group(key):
+    """Which of 64 groups a looked-for key falls in ("" when it has no stable name)."""
+    import zlib
+
+    name = canon_key(key)
+    return "" if name is None else str(zlib.crc32(name.encode("utf-8", "replace")) % 64)
+
+
+def miss_group_of_name(name):
+    """The same group, from a key's stable name."""
+    import zlib
+
+    return str(zlib.crc32(name.encode("utf-8", "replace")) % 64)
+
+
 class _Hasher:
     def __init__(self):
         self.memo = {}       # id -> digest, for objects whose digest stands on its own

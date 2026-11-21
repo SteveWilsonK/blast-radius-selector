@@ -343,13 +343,18 @@ _shared = {}       # "class|NAME" -> the "class|NAME" whose recorder it shares
 _SIMPLE = (bool, int, float, str, bytes, type(None), tuple, list, set, frozenset)
 
 try:
-    from br.state import canon_key as _canon_key
+    from br.state import canon_key as _canon_key, miss_group as _miss_group
 except Exception:  # pragma: no cover - the tracer must run inside the repo
     raise
 
 
+_quiet = [0]
+
+
 def _note(tag):
-    if _ctx is _import:
+    # Reads made while a module loads feed other loaded values, which the state
+    # comparison sees for itself; they are not something this test depends on.
+    if _ctx is _import or _loading[0] or _quiet[0]:
         return
     _ctx["reads"].add(tag)
     if _case is not None:
@@ -394,11 +399,18 @@ class _RecDict(dict):
         if tag is not None:
             _note(tag + mark)
 
+    def _br_miss(self, key):
+        """A key looked for and not found: filed under one of 64 groups of keys, so a
+        key added later only concerns the tests that asked for a key of its group."""
+        tag = self.__dict__.get("_br_tag")
+        if tag is not None and _ctx is not _import and not _loading[0] and not _quiet[0]:
+            _note(tag + "|!" + _miss_group(key))
+
     def __getitem__(self, key):
         try:
             value = dict.__getitem__(self, key)
         except KeyError:
-            self._br_flag("|!")   # asked for an entry that is not there
+            self._br_miss(key)    # asked for an entry that is not there
             raise
         self._br_key(key)
         return value
@@ -407,7 +419,7 @@ class _RecDict(dict):
         try:
             value = dict.__getitem__(self, key)
         except KeyError:
-            self._br_flag("|!")
+            self._br_miss(key)
             return default
         self._br_key(key)
         return value
@@ -416,7 +428,7 @@ class _RecDict(dict):
         if dict.__contains__(self, key):
             self._br_key(key)
             return True
-        self._br_flag("|!")
+        self._br_miss(key)
         return False
 
     def __iter__(self):
@@ -790,6 +802,31 @@ def _patch_sqlglot():
     _patched = True
     from sqlglot.dialects import dialect as dialect_module
     from sqlglot.expressions import core
+    from sqlglot import generator as generator_module
+
+    # A generator copies its class's TRANSFORMS into a per-class table the first time
+    # the class is used, and looks expressions up there from then on. The copy is not
+    # a read of every entry; the lookups in the copy are reads of TRANSFORMS entries.
+    real_build_dispatch = generator_module._build_dispatch
+
+    def build_dispatch(cls):
+        _quiet[0] += 1
+        try:
+            table = real_build_dispatch(cls)
+        finally:
+            _quiet[0] -= 1
+        source = cls.TRANSFORMS
+        tag = source.__dict__.get("_br_tag") if type(source) is _RecDict else None
+        if tag is None or type(table) is not dict:
+            return table
+        proxy = _RecDict(table)
+        proxy._br_tag = tag
+        proxy._br_names = {}
+        return proxy
+
+    generator_module._build_dispatch = build_dispatch
+    # Tables built before this point (while sqlglot loaded) would escape the record.
+    generator_module._DISPATCH_CACHE.clear()
 
     original_init = core.Expr.__init__
 
