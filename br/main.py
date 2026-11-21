@@ -35,8 +35,8 @@ STATE_MIN_TESTS = 25
 STATE_MIN_COST = 1.0
 SLICE = os.environ.get("BR_SLICE", "0") == "1"  # run tests by statement where the map allows
 # Experiment build only (branch exp-level, never the final): run every runnable candidate
-# of commits that change class- or module-level statements, so the scorer's numbers show
-# whether the practice set's unverified cost sits in that kind of change.
+# of commits that change code inside functions (and no data file), so the scorer's
+# numbers show whether the practice set's unverified cost sits in that kind of change.
 EXP_LEVEL = os.environ.get("BR_EXP_LEVEL", "1") == "1"
 
 
@@ -182,7 +182,8 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
             "prior": prior, "tests": tests_spec, "expensive": expensive,
             "forced": maps.numbers(analysis.direct), "plans": plans,
             "speed": SPEED, "budget": 40.0,
-            "run_all": RUN_ALL or (EXP_LEVEL and analysis.body_units > 0)}
+            "run_all": RUN_ALL or (EXP_LEVEL and not analysis.data_changed and any(
+                note.startswith("func:") for note in analysis.notes))}
 
 
 def refine(plans, texts, analyzer, maps, cost_of, seconds, started, count):
