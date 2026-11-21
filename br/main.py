@@ -28,7 +28,7 @@ CLASS_LOADED = ("tests/test_executor.py::TestExecutor",)
 SPEED = 1.0
 SPEED_FLOOR = float(os.environ.get("BR_SPEED_FLOOR", "1.0"))
 # The scorer allows about 4.5 s of wall time per commit (3 min for 40, 4.5 min for 60).
-WALL_PER_COMMIT = 4.0
+WALL_PER_COMMIT = float(os.environ.get("BR_WALL", "4.0"))
 RUN_ALL = os.environ.get("BR_RUN_ALL") == "1"   # development: never stop early on cost
 STATE = os.environ.get("BR_STATE", "1") == "1"   # compare loaded state for class-level changes
 STATE_FILE = os.path.join(os.path.dirname(MAP), "state.bin")
@@ -189,7 +189,13 @@ def refine(plans, texts, analyzer, maps, cost_of, seconds, started, count):
     from .execute import run_guarded
 
     try:
-        unstable = set(state_module.load(STATE_FILE).get("unstable_modules") or ())
+        if os.path.exists(STATE_FILE + ".meta"):
+            # Written beside the fingerprint when the image is built: the few names
+            # needed here, without reading the whole fingerprint in this process.
+            with open(STATE_FILE + ".meta") as handle:
+                unstable = set(json.load(handle).get("unstable_modules") or ())
+        else:
+            unstable = set(state_module.load(STATE_FILE).get("unstable_modules") or ())
     except Exception as error:  # noqa: BLE001
         log(f"state file unreadable ({error!r})")
         return
@@ -221,6 +227,7 @@ def refine(plans, texts, analyzer, maps, cost_of, seconds, started, count):
     for commit, index in where.items():
         found = (results.get(commit) or {}).get("state")
         result = found[0] if found else None
+        log(f"LEDGER state {commit} {found[1] if found else 0}")
         tags = analyzer.state_tags(result) if isinstance(result, dict) else None
         if tags is None:
             why = (result or {}).get("error") if isinstance(result, dict) else "no answer"
@@ -284,6 +291,7 @@ def main():
             analysis = None
         plans.append((commit, selected, analysis))
 
+    log(f"LEDGER main-analysis {time.process_time():.3f}")
     cost_of = maps.cost
     if STATE and os.path.exists(STATE_FILE) and maps.tracked and not NO_EXEC:
         refine(plans, texts, analyzer, maps, cost_of, seconds, started, len(names))

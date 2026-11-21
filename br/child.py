@@ -78,6 +78,10 @@ def _alarm(signum, frame):
     raise TestTimeout()
 
 
+# The pinned fingerprint, when the process the children are forked from has read it.
+PINNED = {}
+
+
 def run_state(job, out_fd):
     """Load every sqlglot module with the patch applied and report which loaded
     names differ from the pinned commit (see state.py). Writes one line:
@@ -101,7 +105,7 @@ def run_state(job, out_fd):
         signal.signal(signal.SIGPROF, _alarm)
         signal.setitimer(signal.ITIMER_PROF, 8.0 * job.get("speed", 1.0))
         sys.setrecursionlimit(20000)
-        pinned = state.load(job["state_path"])
+        pinned = PINNED.get(job["state_path"]) or state.load(job["state_path"])
         state.load_everything()
         table, cut = state.fingerprint()
         signal.setitimer(signal.ITIMER_PROF, 0)

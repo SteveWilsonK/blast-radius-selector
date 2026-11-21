@@ -323,4 +323,9 @@ if __name__ == "__main__":
         handle.write(zlib.compress(pickle.dumps(
             {"table": {k: v for k, v in table.items() if k not in unstable}, "truncated": cut,
              "unstable": unstable, "unstable_modules": modules}, protocol=5), 9))
+    if len(sys.argv) < 4:
+        import json
+
+        with open(target + ".meta", "w") as handle:
+            json.dump({"unstable_modules": modules}, handle)
     print(f"{len(table)} names, cut short: {cut}, unstable: {unstable}", file=sys.stderr)

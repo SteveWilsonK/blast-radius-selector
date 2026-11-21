@@ -3,3 +3,5 @@ __pycache__/
 *.pyc
 maps/state.bin
 maps/enumdyn.bin
+maps/*.meta
+maps/*.raw

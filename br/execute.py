@@ -28,11 +28,22 @@ def run_guarded(jobs, parallel, deadline, preload, log=lambda *a: None, warm=(),
                 from . import lazymods
 
                 lazymods.install()
+            t_pre = time.process_time()
+            paths = {job["state_path"] for job in jobs if job.get("state")}
+            for path in paths:
+                # Read once here: every comparison child is forked with it in memory.
+                try:
+                    from . import state
+
+                    child.PINNED[path] = state.load(path)
+                except Exception:  # noqa: BLE001 - each child reads it for itself
+                    pass
             for name in preload:
                 try:
                     __import__(name)
                 except Exception:  # noqa: BLE001 - the tests that need it will say so
                     pass
+            log(f"LEDGER preload {time.process_time() - t_pre:.3f}")
             if warm and jobs:
                 # Load unpatched sqlglot once; a child whose patch touches none of the
                 # loaded modules starts from here, the others load their own copy.
@@ -55,6 +66,7 @@ def run_guarded(jobs, parallel, deadline, preload, log=lambda *a: None, warm=(),
 
             run_jobs(jobs, parallel=parallel, log=log, on_done=done, adapt=adapt)
             out.flush()
+            log(f"LEDGER helper-own {time.process_time():.3f} jobs {len(jobs)}")
         except BaseException:  # noqa: BLE001
             code = 1
         finally:
