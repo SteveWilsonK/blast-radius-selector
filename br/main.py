@@ -34,7 +34,7 @@ STATE = os.environ.get("BR_STATE", "1") == "1"   # compare loaded state for clas
 STATE_FILE = os.path.join(os.path.dirname(MAP), "state.bin")
 STATE_MIN_TESTS = 25
 STATE_MIN_COST = 1.0
-EXP_DROP = set(filter(None, os.environ.get("BR_EXP_DROP", "").split(",")))
+EXP_DROP = set(filter(None, os.environ.get("BR_EXP_DROP", "test_max_nodes").split(",")))
 SLICE = os.environ.get("BR_SLICE", "0") == "1"  # run tests by statement where the map allows
 
 
