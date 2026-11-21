@@ -13,7 +13,7 @@ DATA = os.environ.get("BR_DATA", "/data")
 APP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SOURCE = os.environ.get("BR_SOURCE", "/opt/sqlglot")
 MAP = os.environ.get("BR_MAP", os.path.join(APP, "maps", "map.bin"))
-NO_EXEC = os.environ.get("BR_NO_EXEC") == "1"
+NO_EXEC = os.environ.get("BR_NO_EXEC", "1") == "1"  # diagnostic build: nothing is run
 # Multiplier on the run costs stored in the map (they were measured with the same
 # child set-up the selector uses, so none is needed).
 COST_SCALE = 1.0
