@@ -34,6 +34,9 @@ STATE = os.environ.get("BR_STATE", "1") == "1"   # compare loaded state for clas
 STATE_FILE = os.path.join(os.path.dirname(MAP), "state.bin")
 STATE_MIN_TESTS = 25
 STATE_MIN_COST = 1.0
+# Costly test number -> numbers of the cheap tests most like it (maps/alike.json).
+ALIKE = {}
+ALIKE_FILE = os.path.join(os.path.dirname(MAP), "alike.json")
 EXP_DROP = set(filter(None, os.environ.get("BR_EXP_DROP", "").split(",")))
 SLICE = os.environ.get("BR_SLICE", "0") == "1"  # run tests by statement where the map allows
 
@@ -60,12 +63,24 @@ def decide(selected, verdict, forced=(), ruled_out=0):
     # Tests the state comparison ruled out count as passed, but only alongside tests
     # that really ran: on their own they say nothing about a test that does read
     # what changed.
-    if policy.select_expensive(len(ran) + (ruled_out if ran else 0), len(failed)):
-        keep |= set(expensive)
-    else:
-        # A test that reads a patched file is never dropped on the others' evidence.
-        keep |= set(expensive) & set(forced)
-    return keep, failed, ran, unknown, expensive
+    by_share = policy.select_expensive(len(ran) + (ruled_out if ran else 0), len(failed))
+    failed_set, ran_set = set(failed), set(ran)
+    cleared = set()
+    for n in expensive:
+        if n in forced:
+            keep.add(n)     # reads a patched file: never dropped on the others' evidence
+            continue
+        # The tests most like it are the best evidence about a test that cannot be
+        # run: one of them failing keeps it; enough of them passing leaves it out,
+        # whatever unrelated tests did.
+        alike = ALIKE.get(n) or ()
+        if failed_set.intersection(alike):
+            keep.add(n)
+        elif policy.ALIKE_ENOUGH and len(ran_set.intersection(alike)) >= policy.ALIKE_ENOUGH:
+            cleared.add(n)
+        elif by_share:
+            keep.add(n)
+    return keep, failed, ran, unknown, expensive, cleared
 
 
 def insure(keep, dropped, ms, risk):
@@ -175,7 +190,13 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
             else:
                 for s in filtered:
                     s[4], s[5] = s[7], None
-    specs.sort(key=lambda s: s[4])
+    # The cheap look-alikes of a test too costly to run go first: their verdicts are
+    # what decides whether that test is selected.
+    first = set()
+    for number, _ in expensive:
+        first.update(ALIKE.get(number) or ())
+    first &= {s[0] for s in specs}
+    specs.sort(key=lambda s: (s[0] not in first, s[4]))
     tests_spec = [tuple(s[:7]) for s in specs]
     if os.environ.get("BR_DEBUG") == commit:
         log(f"  plan: {len(specs)} to run, est {sum(s[4] for s in specs):.2f}s "
@@ -195,7 +216,7 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
         return None  # selecting it unrun is cheaper than checking
     return {"key": commit, "root": SOURCE, "files": files, "pickle": analysis.pickle,
             "prior": prior, "tests": tests_spec, "expensive": expensive,
-            "forced": maps.numbers(analysis.direct), "plans": plans,
+            "forced": maps.numbers(analysis.direct), "plans": plans, "first": sorted(first),
             "speed": SPEED, "budget": 40.0, "run_all": RUN_ALL}
 
 
@@ -290,6 +311,15 @@ def main():
     names = sorted(f for f in os.listdir(commit_dir) if f.endswith(".patch"))
     everything = [t["number"] for t in tests]
     id_of = {t["number"]: t["id"] for t in tests}
+    if policy.ALIKE_ENOUGH and os.path.exists(ALIKE_FILE):
+        try:
+            number_of = {t["id"]: t["number"] for t in tests}
+            with open(ALIKE_FILE) as handle:
+                for name, others in json.load(handle).items():
+                    if name in number_of:
+                        ALIKE[number_of[name]] = [number_of[o] for o in others if o in number_of]
+        except Exception as error:  # noqa: BLE001 - without it the older rules decide
+            log(f"look-alike table unreadable ({error!r})")
     seconds = {t["number"]: t["seconds"] for t in tests}
     plans = []
     texts = {}
@@ -372,15 +402,18 @@ def main():
         if commit in verdicts:
             verdict = verdicts[commit]
             forced = maps.numbers(analysis.direct) if analysis is not None else ()
-            keep, failed, ran, unknown, expensive = decide(
+            keep, failed, ran, unknown, expensive, cleared = decide(
                 selected, verdict, forced, RULED_OUT.get(commit, 0))
-            left_out = [n for n in expensive if n not in keep]
+            left_out = [n for n in expensive if n not in keep and n not in cleared]
             if left_out:
                 # Unrun candidates say nothing about the costly tests: the share of
                 # failures only counts as evidence when the others really ran.
                 thin = unknown or len(ran) < policy.MIN_RUN
                 risk = policy.RISK_UNVERIFIED if thin else policy.RISK_VERIFIED
                 keep = insure(keep, left_out, ms, risk)
+            if cleared:
+                # Left out because its look-alikes passed: a smaller risk remains.
+                keep = insure(keep, sorted(cleared), ms, policy.RISK_ALIKE_PASSED)
             if EXP_DROP:
                 # Experiment builds only: never select these never-run tests (unless
                 # they read a patched file), to see on the scorer what they cost us

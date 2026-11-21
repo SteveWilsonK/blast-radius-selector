@@ -232,6 +232,7 @@ def run(job, out_fd):
     stop_all = False
     stop_code = 3
     forced = set(job.get("forced", ()))
+    first = set(job.get("first", ()))
     import_cpu = 0.0
     for number, test_id, limit, _, _, _, part in job["tests"]:
         path, cls, method = test_id.split("::")
@@ -245,10 +246,17 @@ def run(job, out_fd):
     for path, cls_name, part in order:
         items = by_class[(path, cls_name, part)]
         if stop_all:
+            # Stopped on cost: nothing more is run, except the tests whose verdicts
+            # stand in for a test too costly to run (job["first"]); those are few
+            # and cheap, and they come first within their class.
+            wanted = [item for item in items if item[0] in first] if _timeouts[0] < 3 else []
             for number, _, _ in items:
-                code = 3 if number in forced else stop_code
-                out.write(json.dumps([number, code, 0.0]) + "\n")
-            continue
+                if number not in first or not wanted:
+                    code = 3 if number in forced else stop_code
+                    out.write(json.dumps([number, code, 0.0]) + "\n")
+            if not wanted:
+                continue
+            items = wanted
         module_name = path[:-3].replace("/", ".")
         phase_limit = PHASE_LIMIT * job.get("speed", 1.0) if not _timeouts[0] else 2.0
         try:
@@ -326,9 +334,10 @@ def run(job, out_fd):
         state = {"i": 0, "t0": 0.0}
 
         def start(test, _state=state, _cases=cases, module=module):
-            if not job.get("run_all") and (time.process_time() > budget or tracker.should_stop()):
-                raise OutOfBudget()
             upcoming = _cases[_state["i"]][0]
+            if not job.get("run_all") and (time.process_time() > budget or (
+                    upcoming not in first and (stop_all or tracker.should_stop()))):
+                raise OutOfBudget()
             if not job.get("run_all") and upcoming not in forced and tracker.skip_costly(info[upcoming][1]):
                 raise SkipRest()
             if _timeouts[0] >= 3:

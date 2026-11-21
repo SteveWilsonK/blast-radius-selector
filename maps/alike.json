@@ -1,0 +1,22 @@
+{
+"tests/test_executor.py::TestExecutor::test_execute_tpcds": [
+"tests/test_optimizer.py::TestOptimizer::test_tpch",
+"tests/test_executor.py::TestExecutor::test_subqueries",
+"tests/test_optimizer.py::TestOptimizer::test_optimize_special_joins",
+"tests/test_executor.py::TestExecutor::test_execute_callable",
+"tests/test_optimizer.py::TestOptimizer::test_optimize_subqueries_in_join_on",
+"tests/test_optimizer.py::TestOptimizer::test_optimize_subqueries_in_aggregates",
+"tests/test_executor.py::TestExecutor::test_correlated_exists_over_scalar_aggregate",
+"tests/test_optimizer.py::TestOptimizer::test_merge_asof_join_inputs"
+],
+"tests/test_parser.py::TestParser::test_max_nodes": [
+"tests/test_expressions.py::TestExprs::test_set_metadata",
+"tests/test_parser.py::TestParser::test_multi",
+"tests/test_parser.py::TestParser::test_quoted_identifier_meta",
+"tests/test_parser.py::TestParser::test_missing_by",
+"tests/test_expressions.py::TestExprs::test_find_ancestor",
+"tests/test_parser.py::TestParser::test_identify",
+"tests/test_expressions.py::TestExprs::test_text",
+"tests/test_expressions.py::TestExprs::test_hash"
+]
+}
