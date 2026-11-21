@@ -34,6 +34,7 @@ STATE = os.environ.get("BR_STATE", "1") == "1"   # compare loaded state for clas
 STATE_FILE = os.path.join(os.path.dirname(MAP), "state.bin")
 STATE_MIN_TESTS = 25
 STATE_MIN_COST = 1.0
+EXP_DROP = set(filter(None, os.environ.get("BR_EXP_DROP", "").split(",")))
 SLICE = os.environ.get("BR_SLICE", "0") == "1"  # run tests by statement where the map allows
 
 
@@ -380,6 +381,12 @@ def main():
                 thin = unknown or len(ran) < policy.MIN_RUN
                 risk = policy.RISK_UNVERIFIED if thin else policy.RISK_VERIFIED
                 keep = insure(keep, left_out, ms, risk)
+            if EXP_DROP:
+                # Experiment builds only: never select these never-run tests (unless
+                # they read a patched file), to see on the scorer what they cost us
+                # and whether they really fail.
+                keep = set(keep) - {n for n in expensive
+                                    if id_of[n].rsplit("::", 1)[1] in EXP_DROP and n not in forced}
             cpu = sum(v[1] for v in verdict.values())
             total, imports, user, system = (verdicts.get("_stats", {}).get(commit, ()) + (0,) * 4)[:4]
             if os.environ.get("BR_DEBUG") == commit:
