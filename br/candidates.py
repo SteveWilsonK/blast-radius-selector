@@ -66,6 +66,7 @@ class Analyzer:
         self._refs_path = refs_path
         self._refs = None
         self._enumdyn = None
+        self._enum_mixins = set()
         self._subclasses = {}
 
     def refs(self, name):
@@ -84,8 +85,17 @@ class Analyzer:
             path = os.path.join(os.path.dirname(self._refs_path or ""), "enumdyn.bin")
             if self._refs_path and os.path.exists(path):
                 with open(path, "rb") as f:
-                    self._enumdyn = pickle.loads(zlib.decompress(f.read()))["dynamic"]
+                    data = pickle.loads(zlib.decompress(f.read()))
+                self._enumdyn = data["dynamic"]
+                self._enum_mixins = set(data.get("mixins") or ())
         return self._enumdyn
+
+    def _plain_enum(self, holder):
+        """A sqlglot Enum whose members are not also str or int, when the comparison
+        record follows its values (who reads `.value`, who looks members up by value)."""
+        cond = self.cond()
+        return (cond is not None and cond.get("enums") and holder in self._enum_dynamic()
+                and holder not in self._enum_mixins)
 
     def cond(self):
         """Comparison coverage, or None when it is absent or does not match this run."""
@@ -221,6 +231,21 @@ class Analyzer:
             elif "|" in key:
                 parts = key.split("|")
                 holder, name = parts[0], parts[1]
+                if self._plain_enum(holder):
+                    # A plain Enum member's value is used only by code that reads
+                    # `.value` or looks a member up by value; comparing, hashing and
+                    # printing members go by identity and name. Both uses were
+                    # recorded per test.
+                    if name == "_value2member_map_" and len(parts) >= 3:
+                        tags.add(f"@cond|enumv2m:{holder}|{'|'.join(parts[2:])}")
+                        tags.add(f"@cond|enumv2m:{holder}|*")
+                        return True
+                    if name.startswith("_") and name.endswith("_"):
+                        return name in ENUM_INNARDS   # the rest follows the members
+                    if len(parts) == 2:
+                        tags.add(f"@cond|enumval:{holder}|{name}")
+                        return True
+                    return False
                 if name.startswith("_") and name.endswith("_"):
                     if holder in self._enum_dynamic() and name in ENUM_INNARDS:
                         # An Enum's own lookup tables follow its members: code that
@@ -291,7 +316,13 @@ class Analyzer:
         maps = self.maps
         tests = 0
         places = []
+        cond = self.cond()
         for tag in tags:
+            if tag.startswith("@cond|"):
+                site = tag[len("@cond|"):]
+                for key in (cond["sites"].get(site) or {}).values() if cond else ():
+                    tests |= int.from_bytes(cond["sets"][key], "little")
+                continue
             if tag.startswith("@lines|"):
                 _, path, first, last = tag.split("|")
                 first, last = int(first), int(last)
@@ -308,7 +339,7 @@ class Analyzer:
                 tests |= maps.mask(key)
         a.strong |= tests
         a.loose |= tests      # the map does not say where outside a case it is read
-        a.specs.append(("reads", [t for t in tags if not t.startswith("@lines|")], None, 0))
+        a.specs.append(("reads", [t for t in tags if not t.startswith("@")], None, 0))
         if places:
             a.specs.append(("lines", places, None, 0))
         a.notes.append(f"state:{len(tags)} names")

@@ -165,7 +165,34 @@ for path, tree in trees.items():
                 seen.add((key, entry))
                 dynamic[key].append(entry)
 
-blob = zlib.compress(pickle.dumps({"enums": sorted(enums), "dynamic": dynamic}, protocol=5), 9)
+# Enums whose members are also str or int: their value is used wherever the member is
+# compared, hashed or printed, so a value change cannot be pinned to value reads.
+MIXIN_BASES = {"str", "int", "IntEnum", "StrEnum", "IntFlag", "Flag", "bytes", "float"}
+mixins = set()
+changed = True
+while changed:
+    changed = False
+    for path, tree in trees.items():
+        if not path.startswith("sqlglot/"):
+            continue
+
+        def walk_mixin(body, prefix):
+            global changed
+            for node in body:
+                if isinstance(node, ast.ClassDef):
+                    qual = prefix + node.name
+                    key = f"{module_of(path)}:{qual}"
+                    bases = {base_name(b) for b in node.bases}
+                    if key in enums and key not in mixins and (
+                            bases & MIXIN_BASES or bases & {enums[k] for k in mixins}):
+                        mixins.add(key)
+                        changed = True
+                    walk_mixin(node.body, qual + ".")
+
+        walk_mixin(tree.body, "")
+
+blob = zlib.compress(pickle.dumps({"enums": sorted(enums), "dynamic": dynamic,
+                                   "mixins": sorted(mixins)}, protocol=5), 9)
 open(out_file, "wb").write(blob)
 print(f"{len(enums)} enum classes, {sum(len(v) for v in dynamic.values())} dynamic uses",
       file=sys.stderr)

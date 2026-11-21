@@ -105,7 +105,13 @@ class _Hasher:
     def _walk(self, value, kind, depth):
         of = self.of
         if isinstance(value, enum.Enum):
-            return f"enum:{kind.__module__}.{kind.__qualname__}.{value.name}:{of(value._value_, depth)}"
+            if isinstance(value, (str, int, float, bytes)):
+                # Also a str or int: wherever it is held, its value is what compares.
+                return f"enum:{kind.__module__}.{kind.__qualname__}.{value.name}:{of(value._value_, depth)}"
+            # A plain member compares and hashes by identity: a table holding it does
+            # not change when its value does. The member's own value is filed with
+            # its class (see walk_class).
+            return f"enum:{kind.__module__}.{kind.__qualname__}.{value.name}"
         if isinstance(value, type):
             return f"class:{value.__module__}.{value.__qualname__}"
         if kind in (tuple, list):
@@ -235,6 +241,10 @@ def fingerprint():
             if attr in SKIP_ATTRS or attr.startswith("_abc_"):
                 continue
             key = f"{owner}|{attr}"
+            if isinstance(item, enum.Enum) and type(item) is cls and \
+                    not isinstance(item, (str, int, float, bytes)):
+                out[key] = "member:" + hasher.of(item._value_)
+                continue
             if isinstance(item, type):
                 out[key] = f"class:{item.__module__}.{item.__qualname__}"
                 if item.__module__ == module_name and item.__qualname__.startswith(cls.__qualname__ + "."):
