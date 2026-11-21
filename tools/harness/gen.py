@@ -28,6 +28,9 @@ def listing(top, suffix):
 
 
 SOURCE = listing("sqlglot", ".py")
+if os.environ.get("HARNESS_ONLY"):
+    # e.g. HARNESS_ONLY=sqlglot/executor/ to aim every code edit at one folder
+    SOURCE = [p for p in SOURCE if p.startswith(os.environ["HARNESS_ONLY"])]
 TESTS = [p for p in listing("tests", ".py") if "/sqlglot/" not in p]
 FIXTURES = listing("tests/fixtures", ".sql")
 _text = {}

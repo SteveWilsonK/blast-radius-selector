@@ -20,7 +20,7 @@ EXPENSIVE_SHARE = 0.08
 # than its share of that risk. (0 turns the rule off.)
 MISS = 300.0
 RISK_UNVERIFIED = float(os.environ.get("BR_RISK_UNVERIFIED", "0.15"))
-RISK_VERIFIED = float(os.environ.get("BR_RISK_VERIFIED", "0.0"))
+RISK_VERIFIED = float(os.environ.get("BR_RISK_VERIFIED", "0.08"))
 # Passing tests to see before the rest may be selected unrun.
 MIN_RUN = 8
 # A candidate that costs at least this many scorer seconds to run is put off to the
