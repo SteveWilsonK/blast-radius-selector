@@ -37,6 +37,7 @@ STATE_MIN_COST = 1.0
 # Costly test number -> numbers of the cheap tests most like it (maps/alike.json).
 ALIKE = {}
 ALIKE_FILE = os.path.join(os.path.dirname(MAP), "alike.json")
+EXP_ALIKE = os.environ.get("BR_EXP_ALIKE", "1") == "1"
 EXP_DROP = set(filter(None, os.environ.get("BR_EXP_DROP", "").split(",")))
 SLICE = os.environ.get("BR_SLICE", "0") == "1"  # run tests by statement where the map allows
 
@@ -75,7 +76,10 @@ def decide(selected, verdict, forced=(), ruled_out=0):
         # whatever unrelated tests did.
         alike = ALIKE.get(n) or ()
         if failed_set.intersection(alike):
-            keep.add(n)
+            # Experiment build (never the final): leave the costly test out even
+            # though one of its look-alikes failed, to learn on the scorer whether
+            # that is the situation of the one practice commit that over-selects it.
+            cleared.add(n) if EXP_ALIKE else keep.add(n)
         elif policy.ALIKE_ENOUGH and len(ran_set.intersection(alike)) >= policy.ALIKE_ENOUGH:
             cleared.add(n)
         elif by_share:

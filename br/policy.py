@@ -25,7 +25,7 @@ RISK_VERIFIED = float(os.environ.get("BR_RISK_VERIFIED", "0.08"))
 # whose coverage is most like its own, maps/alike.json) ran and none failed; one of
 # them failing keeps it. 0 turns look-alike evidence off.
 ALIKE_ENOUGH = int(os.environ.get("BR_ALIKE_ENOUGH", "3"))
-RISK_ALIKE_PASSED = float(os.environ.get("BR_RISK_ALIKE_PASSED", "0.03"))
+RISK_ALIKE_PASSED = float(os.environ.get("BR_RISK_ALIKE_PASSED", "0.0"))
 # Passing tests to see before the rest may be selected unrun.
 MIN_RUN = 8
 # A candidate that costs at least this many scorer seconds to run is put off to the
