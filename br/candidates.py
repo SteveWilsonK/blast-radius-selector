@@ -4,6 +4,7 @@ import os
 import pickle
 import zlib
 
+from . import blob
 from . import patch as patchlib
 from . import relations
 from . import units
@@ -73,8 +74,7 @@ class Analyzer:
         if self._refs is None:
             self._refs = {}
             if self._refs_path and os.path.exists(self._refs_path):
-                with open(self._refs_path, "rb") as f:
-                    self._refs = pickle.loads(zlib.decompress(f.read()))
+                self._refs = blob.load(self._refs_path)
         return self._refs.get(name)
 
     def _enum_dynamic(self):
@@ -102,8 +102,7 @@ class Analyzer:
         if self._cond is False:
             self._cond = None
             if self._cond_path and os.path.exists(self._cond_path):
-                with open(self._cond_path, "rb") as f:
-                    data = pickle.loads(zlib.decompress(f.read()))
+                data = blob.load(self._cond_path)
                 if data.get("complete") and data.get("ids") == self.maps.ids:
                     self._cond = data
         return self._cond

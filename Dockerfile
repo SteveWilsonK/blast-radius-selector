@@ -19,6 +19,8 @@ COPY maps/map.bin maps/refs.bin maps/cond.bin maps/reads.bin /app/maps/
 RUN python -m compileall -q /app/br /opt/sqlglot/sqlglot /opt/sqlglot/tests \
     && cd /app && python -m br.state /opt/sqlglot /app/maps/state.bin \
     && python /app/tools/build_enumdyn.py /opt/sqlglot /app/maps/enumdyn.bin \
+    && python -m br.blob /app/maps/map.bin /app/maps/reads.bin /app/maps/cond.bin \
+       /app/maps/refs.bin /app/maps/state.bin /app/maps/enumdyn.bin \
     && chmod -R a+rX /app /opt/sqlglot
 
 # Math libraries start one spinning thread per core when imported; every CPU second

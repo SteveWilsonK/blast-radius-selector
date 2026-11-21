@@ -2,6 +2,8 @@
 import pickle
 import zlib
 
+from . import blob
+
 
 class _Reads:
     """Per-test table of recorded reads: tag -> key of the set of cases reading it."""
@@ -25,7 +27,7 @@ class _Reads:
 
 class Maps:
     def __init__(self, path, tests):
-        data = pickle.loads(zlib.decompress(open(path, "rb").read()))
+        data = blob.load(path)
         self.ids = data["ids"]
         for name in ("run", "loose", "imp", "pick", "pick_case", "run_body", "imp_body", "load", "opened",
                      "imported", "dirs", "classes", "loose_classes", "dialects",
@@ -49,7 +51,7 @@ class Maps:
 
         extra = os.path.join(os.path.dirname(path), "reads.bin")
         if os.path.exists(extra):
-            more = pickle.loads(zlib.decompress(open(extra, "rb").read()))
+            more = blob.load(extra)
             if more.get("ids") == self.ids:
                 base = len(self._sets)
                 self._sets = list(self._sets) + list(more["sets"])

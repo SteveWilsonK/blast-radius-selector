@@ -286,11 +286,9 @@ def compare(pinned, patched):
 
 
 def load(path):
-    import pickle
-    import zlib
+    from . import blob
 
-    with open(path, "rb") as handle:
-        return pickle.loads(zlib.decompress(handle.read()))
+    return blob.load(path)
 
 
 if __name__ == "__main__":
