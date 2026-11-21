@@ -209,13 +209,21 @@ def main():
         if any(t[1].startswith(heavy) for job in jobs for t in job["tests"]):
             preload += ["duckdb", "numpy", "pandas", "pandas.testing"]
         deadline = started + max(30.0, WALL_PER_COMMIT * len(names) - 8.0)
+        # The scorer's two cores are two threads of one core: two children at once
+        # slow each other down and every CPU second is charged. So one child at a
+        # time, and a second only if the wall-clock limit starts to press.
+        hurry = started + 0.45 * (deadline - started)
+
+        def width():
+            return 1 if time.time() < hurry else 2
+
         try:
-            verdicts = run_guarded(jobs, 2, deadline, preload, log, warm=WARM)
+            verdicts = run_guarded(jobs, width, deadline, preload, log, warm=WARM)
             if len(verdicts) <= 1 and len(preload) > 2:
                 # Nothing came back: a shared library may not load here. Let each
                 # child load what it needs on its own instead.
                 log("helper returned nothing; retrying without preloading")
-                verdicts = run_guarded(jobs, 2, deadline, preload[:2], log)
+                verdicts = run_guarded(jobs, width, deadline, preload[:2], log)
         except Exception as error:
             log(f"verification failed ({error!r}); selecting unrun")
             verdicts = {}

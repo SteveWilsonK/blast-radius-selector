@@ -100,7 +100,10 @@ def run_jobs(jobs, parallel=2, log=lambda *a: None, on_done=None):
     pending = list(jobs)[::-1]
     active = {}  # read fd -> state
     while pending or active:
-        while pending and len(active) < parallel:
+        # `parallel` may be a function of the time: one child at a time while there is
+        # plenty of it, two when the deadline nears.
+        width = parallel() if callable(parallel) else parallel
+        while pending and len(active) < width:
             job = pending.pop()
             r, w = os.pipe()
             pid = os.fork()
