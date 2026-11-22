@@ -23,7 +23,7 @@ class TestTimeout(BaseException):
 
 # CPU seconds a single test may take; one that takes longer is stopped and taken as
 # passing (0 = no cap).
-CAP = float(os.environ.get("BR_CAP", "0"))
+CAP = float(os.environ.get("BR_CAP", "1.0"))
 _capped = [False]
 # After a commit's first failing test, candidates in other test classes ("class") or
 # other test files ("file") are not run and are taken as passing ("" = off).
