@@ -657,7 +657,7 @@ def run(job, out_fd):
                 _state["reported"] = _state.get("reported", 0) + 1
                 return
             cpu = (time.process_time() - _state["t0"]) * SLOW
-            if number in giant:
+            if number in giant or number in tp_first:
                 budget_base[0] += time.process_time() - _state["t0"]
             failed = 1 if case.id() in _result.bad else 0
             # A giant test stopped at its CPU allowance with no failure so far: 6.
