@@ -313,11 +313,11 @@ def run(job, out_fd):
     if _reimport[0]:
         # The patched modules and their importers load again now, through the overlay,
         # so every registry they fill holds the new classes before any test runs.
-        import importlib
+        from importlib import import_module as _load_again
 
         for name in _reimport[0]:
             try:
-                importlib.import_module(name)
+                _load_again(name)
             except BaseException:  # noqa: BLE001 - the test that imports it will fail too
                 pass
         _reimport[0] = None
