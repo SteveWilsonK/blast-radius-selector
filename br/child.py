@@ -25,6 +25,13 @@ class TestTimeout(BaseException):
 # passing (0 = no cap).
 CAP = float(os.environ.get("BR_CAP", "0"))
 _capped = [False]
+# Price of a CPU second when, after a commit's first failure, each remaining candidate is
+# judged on its own (0 = off: the remaining candidates are run or left as one block).
+PICK = float(os.environ.get("BR_PICK", "0"))
+
+
+def _nothing(*args, **kwargs):
+    return None
 # After a commit's first failing test, candidates in other test classes ("class") or
 # other test files ("file") are not run and are taken as passing ("" = off).
 DROP_REST = os.environ.get("BR_DROP_REST", "")
@@ -269,6 +276,7 @@ def run(job, out_fd):
     stop_code = 3
     probe = bool(job.get("probe"))
     skip = set(job.get("skip", ()))
+    unrun_here = set()
     soft = set(job.get("capped", ()))
     from .policy import SOFT_CAP as soft_cap
     need_state = False
@@ -392,7 +400,22 @@ def run(job, out_fd):
             # (before the cost rule, which would select a large rest unrun).
             if not job.get("run_all") and upcoming not in forced and tracker.skip_costly(info[upcoming][1]):
                 raise SkipRest()
-            if not job.get("run_all") and tracker.should_stop():
+            if PICK > 0 and tracker.failed and not job.get("run_all"):
+                # The commit already has a failing test, so whatever is left unrun gets
+                # selected. Each remaining candidate is judged on its own: run it only
+                # if the scheduled seconds it would cost unrun outweigh the CPU of
+                # running it; otherwise leave it unrun (and selected).
+                recorded, run_cost = info[upcoming]
+                share = (tracker.failed + 0.2) / (tracker.ran + 1.0)
+                if recorded * (1.0 - share) <= run_cost * PICK:
+                    unrun_here.add(upcoming)
+                    test.setUp = test.tearDown = _nothing
+                    setattr(test, test._testMethodName, _nothing)
+                    tracker.todo_sim -= recorded
+                    tracker.todo_cpu -= run_cost
+                    _state["t0"] = time.process_time()
+                    return
+            elif not job.get("run_all") and tracker.should_stop():
                 raise OutOfBudget()
             if _timeouts[0] >= 3:
                 raise OutOfBudget()  # the patch hangs tests: stop paying for it
@@ -421,6 +444,10 @@ def run(job, out_fd):
             active["cases"] = union
             number, case, _ = _cases[_state["i"]]
             _state["i"] += 1
+            if number in unrun_here:
+                out.write(json.dumps([number, 3, 0.0]) + "\n")
+                _state["reported"] = _state.get("reported", 0) + 1
+                return
             cpu = (time.process_time() - _state["t0"]) * SLOW
             failed = 1 if case.id() in _result.bad else 0
             out.write(json.dumps([number, failed, round(cpu, 4)]) + "\n")
