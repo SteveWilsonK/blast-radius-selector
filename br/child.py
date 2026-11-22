@@ -27,7 +27,7 @@ CAP = float(os.environ.get("BR_CAP", "0"))
 _capped = [False]
 # After a commit's first failing test, candidates in other test classes ("class") or
 # other test files ("file") are not run and are taken as passing ("" = off).
-DROP_REST = os.environ.get("BR_DROP_REST", "")
+DROP_REST = os.environ.get("BR_DROP_REST", "class")
 
 
 class OutOfBudget(BaseException):
