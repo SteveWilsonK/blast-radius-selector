@@ -93,5 +93,76 @@
 "tests/test_parser.py::TestParser::test_identify",
 "tests/test_expressions.py::TestExprs::test_text",
 "tests/test_expressions.py::TestExprs::test_hash"
+],
+"tests/dialects/test_snowflake.py::TestSnowflake::test_snowflake": [],
+"tests/test_optimize_cross_joins.py::TestOptimizeCrossJoins::test_conditional_cross_joins": [
+"tests/test_optimizer.py::TestOptimizer::test_merge_subqueries_match",
+"tests/test_executor.py::TestExecutor::test_outer_joins_preserve_unmatched_rows",
+"tests/test_optimizer.py::TestOptimizer::test_pushdown_projections_keeps_recursive_cte_self_referenced_columns",
+"tests/test_optimizer.py::TestOptimizer::test_pushdown_projections_prunes_non_self_referencing_ctes",
+"tests/test_optimizer.py::TestOptimizer::test_optimize_subqueries_in_join_on",
+"tests/test_executor.py::TestExecutor::test_execute_subqueries",
+"tests/test_optimize_cross_joins.py::TestOptimizeCrossJoins::test_unconditional_cross_join_is_preserved",
+"tests/test_executor.py::TestExecutor::test_distinct_order_by_column_from_different_table"
+],
+"tests/test_optimizer.py::TestOptimizer::test_optimize": [
+"tests/test_optimizer.py::TestOptimizer::test_optimize_subqueries_in_join_on",
+"tests/test_optimizer.py::TestOptimizer::test_optimize_distinct_on_predicates",
+"tests/test_optimizer.py::TestOptimizer::test_optimize_subqueries_in_aggregates",
+"tests/test_optimizer.py::TestOptimizer::test_values_annotation",
+"tests/test_optimizer.py::TestOptimizer::test_case_sensitive_json_dot_access",
+"tests/test_optimizer.py::TestOptimizer::test_optimize_snowflake_asof_without_on",
+"tests/test_optimizer.py::TestOptimizer::test_qualify_semi_anti_join_column_aliases",
+"tests/test_executor.py::TestExecutor::test_execute_callable"
+],
+"tests/test_optimizer.py::TestOptimizer::test_optimize_correlated_all": [
+"tests/test_optimizer.py::TestOptimizer::test_optimize_subqueries_in_aggregates",
+"tests/test_optimizer.py::TestOptimizer::test_optimize_subqueries_in_join_on",
+"tests/test_optimizer.py::TestOptimizer::test_optimize_scalar_subquery_predicate_multiple_rows",
+"tests/test_optimizer.py::TestOptimizer::test_optimize_scalar_subquery_key_predicates",
+"tests/test_optimizer.py::TestOptimizer::test_optimize_distinct_on_predicates",
+"tests/test_optimizer.py::TestOptimizer::test_qualify_semi_anti_join_column_aliases",
+"tests/test_optimizer.py::TestOptimizer::test_optimize_snowflake_asof_without_on",
+"tests/test_optimizer.py::TestOptimizer::test_case_sensitive_json_dot_access"
+],
+"tests/test_optimizer.py::TestOptimizer::test_qualify_struct_star_long_cte_chain": [
+"tests/test_optimizer.py::TestOptimizer::test_qualify_skips_unneeded_annotation",
+"tests/test_optimizer.py::TestOptimizer::test_qualify_positional_references_types",
+"tests/test_optimizer.py::TestOptimizer::test_qualify_columns_struct_star_expansion_types",
+"tests/test_optimizer.py::TestOptimizer::test_struct_field_case_sensitivity_annotation",
+"tests/test_optimizer.py::TestOptimizer::test_qualify_order_by_subquery_types",
+"tests/test_optimizer.py::TestOptimizer::test_qualify_star_replace_types",
+"tests/test_optimizer.py::TestOptimizer::test_nonnull_annotation",
+"tests/test_optimizer.py::TestOptimizer::test_merge_any_join_inputs"
+],
+"tests/test_optimizer.py::TestOptimizer::test_simplify": [
+"tests/test_optimizer.py::TestOptimizer::test_pushdown_predicates",
+"tests/dialects/test_presto.py::TestPresto::test_presto",
+"tests/test_optimizer.py::TestOptimizer::test_normalize_identifiers",
+"tests/test_optimizer.py::TestOptimizer::test_case_sensitive_json_dot_access",
+"tests/test_optimizer.py::TestOptimizer::test_optimize_subqueries_in_join_on",
+"tests/test_optimizer.py::TestOptimizer::test_optimize_distinct_on_predicates",
+"tests/test_optimizer.py::TestOptimizer::test_optimize_scalar_subquery_predicate_multiple_rows",
+"tests/test_optimizer.py::TestOptimizer::test_qualify_semi_anti_join_column_aliases"
+],
+"tests/test_optimizer.py::TestOptimizer::test_tpch": [
+"tests/test_optimizer.py::TestOptimizer::test_optimize_subqueries_in_join_on",
+"tests/test_optimizer.py::TestOptimizer::test_optimize_subqueries_in_aggregates",
+"tests/test_optimizer.py::TestOptimizer::test_optimize_distinct_on_predicates",
+"tests/test_executor.py::TestExecutor::test_execute_subqueries",
+"tests/test_optimizer.py::TestOptimizer::test_merge_subqueries_match",
+"tests/test_executor.py::TestExecutor::test_correlated_exists_over_scalar_aggregate",
+"tests/test_executor.py::TestExecutor::test_execute_callable",
+"tests/test_optimizer.py::TestOptimizer::test_optimize_snowflake_asof_without_on"
+],
+"tests/test_serde.py::TestSerde::test_recursion": [
+"tests/test_parser.py::TestParser::test_parameter",
+"tests/dialects/test_duckdb.py::TestDuckDB::test_digit_separators",
+"tests/test_parser.py::TestParser::test_mod_precedence",
+"tests/test_parser.py::TestParser::test_var",
+"tests/test_generator.py::TestGenerator::test_generate_nested_binary",
+"tests/dialects/test_duckdb.py::TestDuckDB::test_is_precedence",
+"tests/test_parser.py::TestParser::test_pretty_config_override",
+"tests/test_transpile.py::TestTranspile::test_comment_single_line_with_block_close"
 ]
 }
