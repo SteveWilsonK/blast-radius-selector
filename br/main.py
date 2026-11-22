@@ -69,7 +69,7 @@ GIANT_PARTIAL = os.environ.get("BR_GIANT_PARTIAL", "drop")
 # seconds that do not count against the commit's budget. It failing (or another
 # executor test failing) selects test_execute_tpcds; otherwise it is left out.
 TP_RULE = os.environ.get("BR_TP_RULE", "1") == "1"
-TP_BUDGET = float(os.environ.get("BR_TP_BUDGET", "0.6"))
+TP_BUDGET = float(os.environ.get("BR_TP_BUDGET", "0.3"))
 TP_FAMILY_RULE = os.environ.get("BR_TP_FAMILY", "0") == "1"   # another executor test failing also selects it
 TP_GIANT = "tests/test_executor.py::TestExecutor::test_execute_tpcds"
 TP_PROXY = "tests/test_optimizer.py::TestOptimizer::test_tpcds"
