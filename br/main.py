@@ -344,6 +344,12 @@ def refine(plans, texts, analyzer, maps, cost_of, seconds, started, count, only=
 def main():
     global SPEED
     started = time.time()
+    if os.environ.get("BR_GC_OFF", "0") == "1":
+        # A short-lived process tree: collecting cycles only costs CPU here. The
+        # helper and the test children inherit the setting.
+        import gc
+
+        gc.disable()
     # Scorer CPU seconds per second of the run costs in the map. The short probe reads
     # about 1.8 on the scorer, but the scorer's own numbers show tests there cost more
     # than that (see NOTES.md): never price CPU below SPEED_FLOOR.
