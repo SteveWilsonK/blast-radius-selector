@@ -53,6 +53,7 @@ RULED_OUT = {}   # commit -> candidates dropped because nothing they read change
 ALIKE = {}       # costly test number -> numbers of the cheap tests most like it
 SOFT = set()     # costly tests decided by their look-alikes alone
 JOBS = {}        # commit -> the job its candidates last ran as
+TRACK_HARD_ONLY = os.environ.get("BR_TRACK_HARD_ONLY", "0") == "1"
 # Commits with at most this many failing tests get each of them run again alone (0 = off).
 RECHECK = int(os.environ.get("BR_RECHECK", "0"))
 # On: tests that failed in this batch are run once on the unpatched code; the ones that
@@ -278,7 +279,10 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
                   if path.endswith(".py")}
     return {"key": commit, "root": SOURCE, "files": files, "pickle": analysis.pickle,
             "load_lines": load_lines,
-            "prior": prior, "tests": tests_spec, "expensive": expensive, "capped": capped,
+            "prior": prior, "tests": tests_spec, "capped": capped,
+            # The stop rule in the child counts on costly tests being selected; the
+            # moderately costly ones are decided apart, so it is not told about them.
+            "expensive": [e for e in expensive if e[0] not in SOFT] if TRACK_HARD_ONLY else expensive,
             "forced": maps.numbers(analysis.direct), "plans": plans,
             "speed": SPEED, "budget": 40.0, "run_all": RUN_ALL}
 
