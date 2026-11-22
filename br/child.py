@@ -27,7 +27,7 @@ CAP = float(os.environ.get("BR_CAP", "0"))
 _capped = [False]
 # Price of a CPU second when, after a commit's first failure, each remaining candidate is
 # judged on its own (0 = off: the remaining candidates are run or left as one block).
-PICK = float(os.environ.get("BR_PICK", "0"))
+PICK = float(os.environ.get("BR_PICK", "4"))
 
 
 def _nothing(*args, **kwargs):
