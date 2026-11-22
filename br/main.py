@@ -64,6 +64,9 @@ GIANT_SLICE = os.environ.get("BR_GIANT_SLICE", "0") == "1"
 # What a giant test stopped at its allowance without a failure counts as: "drop" (passing)
 # or "rule" (never run: the share rule and the insurance decide).
 GIANT_PARTIAL = os.environ.get("BR_GIANT_PARTIAL", "drop")
+# On: before anything has failed, tests whose file or name carries the name of a patched
+# module run first (a test written for that module is the likeliest to fail), then cheapest.
+NAME_FIRST = os.environ.get("BR_NAME_FIRST", "1") == "1"
 JOBS = {}        # commit -> the job its candidates last ran as
 TRACK_HARD_ONLY = os.environ.get("BR_TRACK_HARD_ONLY", "0") == "1"
 TRACK_NO_DROPPED = os.environ.get("BR_TRACK_NO_DROPPED", "0") == "1"
@@ -333,6 +336,18 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
             if number not in SOFT:
                 first.update(ALIKE.get(number) or ())
         specs.sort(key=lambda s: (s[0] not in first, s[4]))
+    elif NAME_FIRST:
+        stems = set()
+        for path in files:
+            stem = os.path.splitext(os.path.basename(path))[0].lower().strip("_")
+            if len(stem) >= 4 and stem not in ("init", "base", "core", "helper", "helpers"):
+                stems.add(stem)
+
+        def near(test_id):
+            low = test_id.lower()
+            return any(stem in low for stem in stems)
+
+        specs.sort(key=lambda s: (s[4] >= 0 and not near(s[1]), s[4]))
     else:
         specs.sort(key=lambda s: s[4])
     tests_spec = [tuple(s[:7]) for s in specs]
