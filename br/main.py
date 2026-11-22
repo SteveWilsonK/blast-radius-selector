@@ -57,6 +57,9 @@ UNRUNNABLE = {}  # commit -> its moderately costly candidates, when none of its 
 SOFT_BLIND = os.environ.get("BR_SOFT_BLIND", "0") == "1"
 # Off: a moderately costly test is selected only when it reads a patched file.
 SOFT_ALIKE = os.environ.get("BR_SOFT_ALIKE", "1") == "1"
+# Off: reading a patched file no longer selects a moderately costly test by itself;
+# only a failed look-alike does.
+SOFT_FORCE = os.environ.get("BR_SOFT_FORCE", "1") == "1"
 
 
 def load_alike(tests):
@@ -100,7 +103,7 @@ def decide(selected, verdict, forced=(), ruled_out=0):
     # (or they read a patched file), left out otherwise.
     failed_set = set(failed)
     for n in soft:
-        if n in forced or (SOFT_ALIKE and failed_set & ALIKE[n]):
+        if (SOFT_FORCE and n in forced) or (SOFT_ALIKE and failed_set & ALIKE[n]):
             keep.add(n)
     return keep, failed, ran, unknown, hard
 
@@ -548,8 +551,8 @@ def main():
             if swapped:
                 note += f", swapped {swapped[0]}"
             selected = sorted(keep)
-        elif SOFT_BLIND and UNRUNNABLE.get(commit) and analysis is not None:
-            direct = set(maps.numbers(analysis.direct))
+        elif (SOFT_BLIND or not SOFT_FORCE) and UNRUNNABLE.get(commit) and analysis is not None:
+            direct = set(maps.numbers(analysis.direct)) if SOFT_FORCE else set()
             selected = [n for n in selected if n not in UNRUNNABLE[commit] or n in direct]
             note = "costly candidates left out unrun"
         selected = sorted(set(selected))
