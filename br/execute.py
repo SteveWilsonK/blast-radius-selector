@@ -23,7 +23,7 @@ def run_guarded(jobs, parallel, deadline, preload, log=lambda *a: None, warm=(),
         try:
             os.close(r)
             out = os.fdopen(w, "w", buffering=1)
-            if os.environ.get("BR_LAZY", "0") == "1":
+            if os.environ.get("BR_LAZY", "1") == "1":
                 # numpy and pandas load only in a child whose test really uses them.
                 from . import lazymods
 

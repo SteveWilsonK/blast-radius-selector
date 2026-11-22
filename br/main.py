@@ -337,7 +337,7 @@ def main():
         preload = ["unittest", "unittest.mock"]
         heavy = ("tests/test_optimizer.py", "tests/test_executor.py")
         if any(t[1].startswith(heavy) for job in jobs for t in job["tests"]):
-            preload += ["duckdb"] if os.environ.get("BR_LAZY", "0") == "1" else \
+            preload += ["duckdb"] if os.environ.get("BR_LAZY", "1") == "1" else \
                 ["duckdb", "numpy", "pandas", "pandas.testing"]
         deadline = started + max(30.0, WALL_PER_COMMIT * len(names) - 8.0)
         # The scorer's two cores are two threads of one core: two children at once
