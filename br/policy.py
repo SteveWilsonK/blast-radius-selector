@@ -11,6 +11,8 @@ NEVER_RUN = float(os.environ.get("BR_NEVER_RUN", "5.0"))
 # Costly tests under this run cost are decided by their look-alikes alone; the ones
 # above it keep the share rule and the insurance.
 GIANT = 5.0
+# Fixture-walking tests run at most this many of the cases that meet the change (0 = all).
+CASE_CAP = int(os.environ.get("BR_CASE_CAP", "0"))
 # Learn the price of a CPU second from the tests as they run (off until checked).
 ADAPT = os.environ.get("BR_ADAPT") == "1"
 # Share of run candidates that must fail before unrun costly candidates are selected.

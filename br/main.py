@@ -144,6 +144,18 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
             if need is not None:
                 # Only fixtures the test works through case by case weigh on its run time.
                 tagged = [f for f, data in entry.items() if data.get("tagged")]
+                if policy.CASE_CAP and full < policy.GIANT:
+                    # At most CASE_CAP of the cases that meet the change are run, the
+                    # cheapest ones; a test that passes them is taken as passing.
+                    need = dict(need)
+                    for f in tagged:
+                        if f not in need or need[f] == "changed":
+                            continue
+                        wanted_cases = range(entry[f]["n"]) if need[f] is None else need[f]
+                        if len(wanted_cases) > policy.CASE_CAP:
+                            share = entry[f].get("share") or ()
+                            need[f] = set(sorted(wanted_cases, key=lambda i: (
+                                share[i] if i < len(share) else 0.0, i))[:policy.CASE_CAP])
                 total = sum(entry[f]["n"] for f in tagged)
                 wanted = sum(entry[f]["n"] if need.get(f) is None else
                              (1 if need[f] == "changed" else len(need[f])) for f in tagged)
