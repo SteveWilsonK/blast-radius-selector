@@ -482,6 +482,13 @@ def refine(plans, texts, analyzer, maps, cost_of, seconds, started, count, only=
 def main():
     global SPEED
     started = time.time()
+    if os.environ.get("BR_PIN", "1") == "1":
+        # One process works at a time (the others wait in read or select): keep them
+        # all on one CPU so caches stay warm and nothing migrates.
+        try:
+            os.sched_setaffinity(0, {min(os.sched_getaffinity(0))})
+        except (AttributeError, OSError):
+            pass
     if EARLY and not NO_EXEC:
         # Before anything big is loaded here: the helper (and so every test child forked
         # from it) then carries none of the coverage maps.

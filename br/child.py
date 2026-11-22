@@ -24,6 +24,8 @@ class TestTimeout(BaseException):
 # CPU seconds a single test may take; one that takes longer is stopped and taken as
 # passing (0 = no cap).
 CAP = float(os.environ.get("BR_CAP", "0"))
+# On: the per-test cap holds only until the commit's first failure.
+CAP_BEFORE = os.environ.get("BR_CAP_BEFORE", "0") == "1"
 _capped = [False]
 _cap_hit = [False]
 VALUE_ORDER = os.environ.get("BR_VALUE_ORDER", "1") == "1"
@@ -32,6 +34,8 @@ DIAG_BODIES = os.environ.get("BR_DIAG", "") == "bodies"
 # CPU seconds one commit's child may spend before it stops running tests (0 = no limit).
 COMMIT_BUDGET = float(os.environ.get("BR_COMMIT_BUDGET", "0.15"))
 STAKES_K = float(os.environ.get("BR_STAKES_K", "0.5"))
+CHEAP_FAIL = os.environ.get("BR_CHEAP_FAIL", "1") == "1"
+STATE_STAKES = float(os.environ.get("BR_STATE_STAKES", "0"))
 # On: the flat budget holds until the first failure, k x stakes after it.
 STAKES_AFTER = os.environ.get("BR_STAKES_AFTER", "1") == "1"
 _allowed = [False]
@@ -118,6 +122,33 @@ _timeouts = [0]
 PROBE_REST = float(os.environ.get("BR_PROBE_REST", "0.3"))
 
 
+def _cheap_failures():
+    """A failing comparison only needs to fail: no diff, no pretty-printed repr.
+    Equality is still ==, so every verdict stays the same."""
+    import contextlib
+    import unittest
+
+    def equal(self, first, second, msg=None, *args, **kwargs):
+        if not first == second:
+            raise self.failureException(msg or "not equal")
+
+    unittest.TestCase._getAssertEqualityFunc = lambda self, first, second: equal.__get__(self)
+    for name in ("assertMultiLineEqual", "assertListEqual", "assertTupleEqual",
+                 "assertSequenceEqual", "assertDictEqual", "assertSetEqual"):
+        setattr(unittest.TestCase, name, equal)
+
+    @contextlib.contextmanager
+    def sub_test(self, msg=None, **params):
+        # Fail-fast already ends a test at its first failing sub-test; a skipped
+        # sub-test still lets the others run.
+        try:
+            yield
+        except unittest.SkipTest:
+            pass
+
+    unittest.TestCase.subTest = sub_test
+
+
 def _alarm(signum, frame):
     _timeouts[0] += 1
     raise TestTimeout()
@@ -197,6 +228,8 @@ def run(job, out_fd):
         # for it themselves.
         gc.freeze()
         gc.set_threshold(200000, 50, 100)
+    if CHEAP_FAIL:
+        _cheap_failures()
     # sqlglot may already be loaded, unpatched, by the parent. That copy is only good
     # if the patch touches none of the loaded modules; otherwise start clean.
     patched = [overlay.module_name(rel)[0] for rel in job["files"] if rel.endswith(".py")]
@@ -513,7 +546,8 @@ def run(job, out_fd):
             if _timeouts[0]:
                 # One test already ran out of time: give the rest far less rope.
                 limit = min(limit, 2.0 + 4.0 * info[number][1])
-            cap = giant_budget if number in giant else (soft_cap if number in soft else CAP)
+            cap = giant_budget if number in giant else (soft_cap if number in soft else (
+                0 if (CAP_BEFORE and tracker.failed) else CAP))
             _allowed[0] = False
             if ALLOW > 0 and tracker.failed and number not in giant:
                 # The commit already has a failure, so this test is selected if left
