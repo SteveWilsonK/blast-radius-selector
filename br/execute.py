@@ -130,6 +130,27 @@ def run_jobs(jobs, parallel=2, log=lambda *a: None, on_done=None, adapt=False):
         width = parallel() if callable(parallel) else parallel
         while pending and len(active) < width:
             job = pending.pop()
+            if not job.get("state"):
+                # Measuring build (never the final): one extra child per job that does
+                # all the set-up and runs no test, to read the set-up cost on the scorer.
+                r0, w0 = os.pipe()
+                pid0 = os.fork()
+                if pid0 == 0:
+                    try:
+                        os.close(r0)
+                        child.run(dict(job, dry=True), w0)
+                    except BaseException:  # noqa: BLE001
+                        pass
+                    finally:
+                        os._exit(0)
+                os.close(w0)
+                try:
+                    while os.read(r0, 65536):
+                        pass
+                    os.waitpid(pid0, 0)
+                except OSError:
+                    pass
+                os.close(r0)
             r, w = os.pipe()
             pid = os.fork()
             if pid == 0:

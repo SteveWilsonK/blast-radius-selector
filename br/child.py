@@ -272,6 +272,8 @@ def run(job, out_fd):
             for number, _, _ in items:
                 out.write(json.dumps([number, 1, 0.0]) + "\n")
             continue
+        if job.get("dry"):
+            continue  # measuring build: set-up only, no test runs
         if path not in job["files"]:
             # Tests that only need some statements of their body get a shortened body.
             lines = None
