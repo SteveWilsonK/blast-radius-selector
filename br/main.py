@@ -36,7 +36,7 @@ STATE_FILE = os.path.join(os.path.dirname(MAP), "state.bin")
 # commit is taken as clean without the comparison.
 LAZY_STATE = os.environ.get("BR_LAZY_STATE", "1") == "1"
 # The helper that runs the first batch of test children stays for the second one.
-ONE_HELPER = os.environ.get("BR_ONE_HELPER", "0") == "1"
+ONE_HELPER = os.environ.get("BR_ONE_HELPER", "1") == "1"
 STATE_MIN_TESTS = 25
 STATE_MIN_COST = 1.0
 EXP_DROP = set(filter(None, os.environ.get("BR_EXP_DROP", "test_execute_tpcds").split(",")))
@@ -384,7 +384,7 @@ def refine(plans, texts, analyzer, maps, cost_of, seconds, started, count, only=
 def main():
     global SPEED
     started = time.time()
-    if os.environ.get("BR_GC_OFF", "0") == "1":
+    if os.environ.get("BR_GC_OFF", "1") == "1":
         # A short-lived process tree: collecting cycles only costs CPU here. The
         # helper and the test children inherit the setting.
         import gc
