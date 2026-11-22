@@ -52,7 +52,7 @@ ALIKE = {}       # costly test number -> numbers of the cheap tests most like it
 SOFT = set()     # costly tests decided by their look-alikes alone
 UNRUNNABLE = {}  # commit -> its moderately costly candidates, when none of its candidates ran
 # On: such candidates are left out (no look-alike could fail), unless they read a patched file.
-SOFT_BLIND = os.environ.get("BR_SOFT_BLIND", "0") == "1"
+SOFT_BLIND = os.environ.get("BR_SOFT_BLIND", "1") == "1"
 # Off: a moderately costly test is selected only when it reads a patched file.
 SOFT_ALIKE = os.environ.get("BR_SOFT_ALIKE", "1") == "1"
 
