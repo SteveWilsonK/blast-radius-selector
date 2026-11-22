@@ -23,6 +23,12 @@ RUN python -m compileall -q /app/br /opt/sqlglot/sqlglot /opt/sqlglot/tests \
        /app/maps/refs.bin /app/maps/state.bin /app/maps/enumdyn.bin \
     && chmod -R a+rX /app /opt/sqlglot
 
+# The base image ships the standard library without bytecode, and the disk is read-only
+# at run time: without this every process compiles unittest, json, ast, multiprocessing
+# and the rest from source again (about 7x the CPU of loading them compiled).
+RUN python -m compileall -q /usr/local/lib/python3.13 > /dev/null 2>&1; \
+    find /usr/local/lib/python3.13 -name "*.pyc" -not -path "*site-packages*" | wc -l
+
 # Math libraries start one spinning thread per core when imported; every CPU second
 # is charged, and nothing here needs parallel math.
 ENV PYTHONDONTWRITEBYTECODE=1 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 \
