@@ -27,7 +27,7 @@ CAP = float(os.environ.get("BR_CAP", "0"))
 _capped = [False]
 _cap_hit = [False]
 _ignore = [False]
-DIAG_BODIES = os.environ.get("BR_DIAG", "") == "bodies"
+DIAG_BODIES = os.environ.get("BR_DIAG", "main") == "bodies"
 # CPU seconds one commit's child may spend before it stops running tests (0 = no limit).
 COMMIT_BUDGET = float(os.environ.get("BR_COMMIT_BUDGET", "0"))
 _allowed = [False]

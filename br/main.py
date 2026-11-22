@@ -53,7 +53,7 @@ RULED_OUT = {}   # commit -> candidates dropped because nothing they read change
 ALIKE = {}       # costly test number -> numbers of the cheap tests most like it
 SOFT = set()     # costly tests decided by their look-alikes alone
 # Measuring builds only (never the final): "main", "state" or "bodies" does that part twice.
-DIAG = os.environ.get("BR_DIAG", "")
+DIAG = os.environ.get("BR_DIAG", "main")
 # "share": the share rule and the insurance decide a never-run giant test (old behaviour).
 # "alike": only a failed look-alike (or a patched file it reads) selects it.
 GIANT_RULE = os.environ.get("BR_GIANT_RULE", "share")
