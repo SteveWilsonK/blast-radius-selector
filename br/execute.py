@@ -74,7 +74,8 @@ def run_guarded(jobs, parallel, deadline, preload, log=lambda *a: None, warm=(),
                         for job in jobs:
                             if job.get("state"):
                                 continue
-                            paths = {t[1].split("::", 1)[0] for t in job["tests"]}
+                            # Only the first few candidates of a job are sure to run.
+                            paths = {t[1].split("::", 1)[0] for t in job["tests"][:8]}
                             for path in paths:
                                 uses[path] = uses.get(path, 0) + 1
                             dialect_jobs += any(p.startswith("tests/dialects/") for p in paths)
