@@ -9,7 +9,8 @@ import time
 from . import child
 
 
-def run_guarded(jobs, parallel, deadline, preload, log=lambda *a: None, warm=(), adapt=False):
+def run_guarded(jobs, parallel, deadline, preload, log=lambda *a: None, warm=(), adapt=False,
+                followup=None):
     """Run the jobs in a helper process and stream each finished job back.
 
     The helper loads the heavy libraries and forks the test children, so a crash in
@@ -17,11 +18,16 @@ def run_guarded(jobs, parallel, deadline, preload, log=lambda *a: None, warm=(),
     back by the deadline is simply left to the unverified selection.
     """
     r, w = os.pipe()
+    # With `followup`, the helper stays for a second batch: it reports the end of the
+    # first one, then waits for more jobs (or for the pipe to close) from this process.
+    r2, w2 = os.pipe() if followup is not None else (None, None)
     pid = os.fork()
     if pid == 0:
         code = 0
         try:
             os.close(r)
+            if w2 is not None:
+                os.close(w2)
             out = os.fdopen(w, "w", buffering=1)
             if os.environ.get("BR_LAZY", "1") == "1":
                 # numpy and pandas load only in a child whose test really uses them.
@@ -98,12 +104,26 @@ def run_guarded(jobs, parallel, deadline, preload, log=lambda *a: None, warm=(),
 
             run_jobs(jobs, parallel=parallel, log=log, on_done=done, adapt=adapt)
             out.flush()
+            if r2 is not None:
+                out.write(json.dumps("END") + "\n")
+                out.flush()
+                with os.fdopen(r2, "rb") as handle:
+                    data = handle.read()
+                if data:
+                    import pickle
+
+                    more = pickle.loads(data)
+                    run_jobs(more, parallel=parallel, log=log, on_done=done, adapt=adapt)
+                    out.flush()
+                    jobs = list(jobs) + list(more)
             log(f"LEDGER helper-own {time.process_time():.3f} jobs {len(jobs)}")
         except BaseException:  # noqa: BLE001
             code = 1
         finally:
             os._exit(code)
     os.close(w)
+    if r2 is not None:
+        os.close(r2)
     results = {"_stats": {}}
     buf = b""
     while True:
@@ -120,6 +140,26 @@ def run_guarded(jobs, parallel, deadline, preload, log=lambda *a: None, warm=(),
         buf += chunk
         *lines, buf = buf.split(b"\n")
         for line in lines:
+            if line == b'"END"':
+                # First batch done: ask for a second one while the helper waits.
+                more = None
+                try:
+                    more = followup(results)
+                except Exception as error:  # noqa: BLE001
+                    log(f"second batch not planned ({error!r})")
+                try:
+                    if more:
+                        import pickle
+
+                        data = pickle.dumps(more)
+                        view = memoryview(data)
+                        while view:
+                            view = view[os.write(w2, view):]
+                    os.close(w2)
+                except OSError:
+                    pass
+                w2 = None
+                continue
             if line:
                 key, verdicts, stats = json.loads(line)
                 results[key] = {(int(n) if n.isdigit() else n): tuple(v)
@@ -127,6 +167,11 @@ def run_guarded(jobs, parallel, deadline, preload, log=lambda *a: None, warm=(),
                 if stats:
                     results["_stats"][key] = tuple(stats)
     os.close(r)
+    if w2 is not None:
+        try:
+            os.close(w2)
+        except OSError:
+            pass
     try:
         os.kill(pid, signal.SIGKILL)
     except OSError:

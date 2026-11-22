@@ -35,6 +35,8 @@ STATE_FILE = os.path.join(os.path.dirname(MAP), "state.bin")
 # Compare state only after a cheap candidate has failed: when the first few pass, the
 # commit is taken as clean without the comparison.
 LAZY_STATE = os.environ.get("BR_LAZY_STATE", "1") == "1"
+# The helper that runs the first batch of test children stays for the second one.
+ONE_HELPER = os.environ.get("BR_ONE_HELPER", "0") == "1"
 STATE_MIN_TESTS = 25
 STATE_MIN_COST = 1.0
 EXP_DROP = set(filter(None, os.environ.get("BR_EXP_DROP", "test_execute_tpcds").split(",")))
@@ -453,7 +455,20 @@ def main():
     def width():
         return 1 if time.time() < hurry else 2
 
-    def verify(jobs):
+    def second_batch(found):
+        """Jobs for the commits whose probe met a failure, after the state comparison."""
+        need = {commit for commit in probe
+                if isinstance(found.get(commit), dict) and found[commit].pop("state?", None)}
+        if not need:
+            return None
+        # A cheap candidate failed on a class-level change: now the comparison pays.
+        log(f"state comparison wanted for {sorted(need)}")
+        for commit in need:
+            found.pop(commit, None)
+        refine(plans, texts, analyzer, maps, cost_of, seconds, started, len(names), only=need)
+        return build(only=need)
+
+    def verify(jobs, followup=None):
         from .execute import run_guarded
 
         preload = ["unittest", "unittest.mock"]
@@ -463,7 +478,8 @@ def main():
                 ["duckdb", "numpy", "pandas", "pandas.testing"]
         try:
             found = run_guarded(jobs, width, deadline, preload, log, warm=WARM,
-                                adapt=policy.ADAPT and not os.environ.get("BR_SPEED"))
+                                adapt=policy.ADAPT and not os.environ.get("BR_SPEED"),
+                                followup=followup)
             if len(found) <= 1 and len(preload) > 2:
                 # Nothing came back: a shared library may not load here. Let each
                 # child load what it needs on its own instead.
@@ -476,17 +492,13 @@ def main():
 
     # Run candidates against the patched code; keep the ones that fail.
     jobs = build(probing=probe)
-    verdicts = verify(jobs) if jobs else {}
-    need = {commit for commit in probe
-            if isinstance(verdicts.get(commit), dict) and verdicts[commit].pop("state?", None)}
-    if need:
-        # A cheap candidate failed on a class-level change: now the comparison pays.
-        log(f"state comparison wanted for {sorted(need)}")
-        for commit in need:
-            verdicts.pop(commit, None)
+    if ONE_HELPER and probe:
+        # One helper process for both batches (the second one only if a probe failed).
+        verdicts = verify(jobs, followup=second_batch) if jobs else {}
+    else:
+        verdicts = verify(jobs) if jobs else {}
         try:
-            refine(plans, texts, analyzer, maps, cost_of, seconds, started, len(names), only=need)
-            again = build(only=need)
+            again = second_batch(verdicts)
             if again:
                 more = verify(again)
                 stats = more.pop("_stats", {})
