@@ -31,7 +31,10 @@ _ignore = [False]
 DIAG_BODIES = os.environ.get("BR_DIAG", "") == "bodies"
 # CPU seconds one commit's child may spend before it stops running tests (0 = no limit).
 COMMIT_BUDGET = float(os.environ.get("BR_COMMIT_BUDGET", "0.15"))
-STAKES_K = float(os.environ.get("BR_STAKES_K", "0.4"))
+STAKES_K = float(os.environ.get("BR_STAKES_K", "0.25"))
+# On: after the first failure, the stakes budget counts the CPU spent since that failure,
+# not since the commit started.
+STAKES_FROM_FAIL = os.environ.get("BR_STAKES_FROM_FAIL", "1") == "1"
 # On: the flat budget holds until the first failure, k x stakes after it.
 STAKES_AFTER = os.environ.get("BR_STAKES_AFTER", "1") == "1"
 _allowed = [False]
@@ -308,6 +311,7 @@ def run(job, out_fd):
     probe = bool(job.get("probe"))
     skip = set(job.get("skip", ()))
     started_at = time.process_time()
+    fail_base = [None]   # CPU clock at the commit's first failure
     unrun_here = set()
     soft = set(job.get("capped", ()))
     giant = set(job.get("giant_cap", ()))
@@ -464,7 +468,8 @@ def run(job, out_fd):
             if not job.get("run_all") and time.process_time() > budget:
                 raise OutOfBudget()
             if (STAKES_K > 0 and not job.get("run_all") and (tracker.failed or not STAKES_AFTER)
-                    and time.process_time() - started_at > STAKES_K * tracker.stakes()):
+                    and time.process_time() - (fail_base[0] if STAKES_FROM_FAIL and fail_base[0] is not None
+                                               else started_at) > STAKES_K * tracker.stakes()):
                 # One CPU second costs one score second: stop once the CPU spent here
                 # passes k times what verifying the rest could still save.
                 if tracker.failed:
@@ -555,6 +560,8 @@ def run(job, out_fd):
             out.write(json.dumps([number, status, round(cpu, 4)]) + "\n")
             _state["reported"] = _state.get("reported", 0) + 1
             recorded, run_cost = info[number]
+            if failed and fail_base[0] is None:
+                fail_base[0] = time.process_time()
             tracker.record(recorded, run_cost, failed, cpu)
             if failed:
                 fail_scope.add(path if DROP_REST == "file" else (path, cls_name))
