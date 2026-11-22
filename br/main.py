@@ -356,7 +356,7 @@ def refine(plans, texts, analyzer, maps, cost_of, seconds, started, count, only=
 def main():
     global SPEED
     started = time.time()
-    if os.environ.get("BR_GC_OFF", "0") == "1":
+    if os.environ.get("BR_GC_OFF", "1") == "1":
         # A short-lived process tree: collecting cycles only costs CPU here. The
         # helper and the test children inherit the setting.
         import gc
