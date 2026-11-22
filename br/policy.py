@@ -12,7 +12,7 @@ NEVER_RUN = float(os.environ.get("BR_NEVER_RUN", "0.5"))
 # above it keep the share rule and the insurance.
 GIANT = 5.0
 # Price of a CPU second once a commit has a failing test (0 = the same price as before one).
-SPEED_FAILED = float(os.environ.get("BR_SPEED_FAILED", "0"))
+SPEED_FAILED = float(os.environ.get("BR_SPEED_FAILED", "0.25"))
 # CPU seconds a moderately costly test is given before it is stopped and taken as passing
 # (0 = such tests are not run at all).
 SOFT_CAP = float(os.environ.get("BR_SOFT_CAP", "0"))
