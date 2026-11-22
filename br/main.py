@@ -64,6 +64,16 @@ GIANT_SLICE = os.environ.get("BR_GIANT_SLICE", "0") == "1"
 # What a giant test stopped at its allowance without a failure counts as: "drop" (passing)
 # or "rule" (never run: the share rule and the insurance decide).
 GIANT_PARTIAL = os.environ.get("BR_GIANT_PARTIAL", "drop")
+# On: when test_execute_tpcds is a candidate, the optimizer's own TPC-DS test (same
+# queries, optimize only) runs on its covering cases first, under TP_BUDGET scorer
+# seconds that do not count against the commit's budget. It failing (or another
+# executor test failing) selects test_execute_tpcds; otherwise it is left out.
+TP_RULE = os.environ.get("BR_TP_RULE", "1") == "1"
+TP_BUDGET = float(os.environ.get("BR_TP_BUDGET", "2.0"))
+TP_GIANT = "tests/test_executor.py::TestExecutor::test_execute_tpcds"
+TP_PROXY = "tests/test_optimizer.py::TestOptimizer::test_tpcds"
+TP_FAMILY = "tests/test_executor.py::TestExecutor::"
+TP_SLICED = {}   # commit -> number of the proxy run as a slice
 JOBS = {}        # commit -> the job its candidates last ran as
 TRACK_HARD_ONLY = os.environ.get("BR_TRACK_HARD_ONLY", "0") == "1"
 TRACK_NO_DROPPED = os.environ.get("BR_TRACK_NO_DROPPED", "0") == "1"
@@ -189,6 +199,7 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
     giant_cap = []
     case_order = {}
     plans = {}
+    plan_numbers = set(maps.numbers(analysis.strong)) if TP_RULE else ()
     for bit, number in maps.bits(analysis.strong):
         full = cost_of.get(number, seconds[number]) * COST_SCALE
         cases = None
@@ -263,7 +274,9 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
                 cases = {"__dialects__": names}
                 estimate = full * (0.05 + len(names) / 34.0)
         sliced = False
-        if GIANT_SLICE and full >= policy.GIANT and maps.has_cases(bit):
+        tp_proxy = (TP_RULE and id_of[number] == TP_PROXY
+                    and any(id_of[n] == TP_GIANT for n in plan_numbers))
+        if (tp_proxy or (GIANT_SLICE and full >= policy.GIANT)) and maps.has_cases(bit):
             # A giant test that walks fixture cases: run the cases that meet the change,
             # cheapest first, under a CPU allowance. A failing case selects it; all of
             # them passing clears it; running out of allowance leaves it undecided.
@@ -283,6 +296,10 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
                     giant_cap.append(number)
                     estimate = min(estimate, policy.GIANT_BUDGET / max(SPEED, 0.1))
                     sliced = True
+                    if tp_proxy:
+                        TP_SLICED[commit] = number
+                        SOFT.add(number)
+                        estimate = -1.0   # runs first
         if sliced:
             pass
         elif SOFT_SKIP and policy.NEVER_RUN <= estimate < 5.0 and full < policy.GIANT:
@@ -360,7 +377,8 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
     return {"key": commit, "root": SOURCE, "files": files, "pickle": analysis.pickle,
             "load_lines": load_lines,
             "prior": prior, "tests": tests_spec, "capped": capped, "skip": skipped,
-            "giant_cap": giant_cap, "case_order": case_order, "giant_budget": policy.GIANT_BUDGET,
+            "giant_cap": giant_cap, "case_order": case_order,
+            "giant_budget": TP_BUDGET if commit in TP_SLICED else policy.GIANT_BUDGET,
             # The stop rule in the child counts on costly tests being selected; the
             # moderately costly ones are decided apart, so it is not told about them.
             "expensive": told(expensive, id_of, set(maps.numbers(analysis.direct))),
@@ -752,12 +770,20 @@ def main():
                 thin = unknown or len(ran) < policy.MIN_RUN
                 risk = policy.RISK_UNVERIFIED if thin else policy.RISK_VERIFIED
                 keep = insure(keep, left_out, ms, risk)
+            tp_keep = set()
+            if TP_RULE:
+                proxy = TP_SLICED.get(commit)
+                family_failed = any(id_of[n].startswith(TP_FAMILY) for n in failed)
+                proxy_failed = proxy is not None and verdict.get(proxy, (None,))[0] == 1
+                if family_failed or proxy_failed:
+                    tp_keep = {n for n in selected if id_of[n] == TP_GIANT}
             if EXP_DROP:
                 # Experiment builds only: never select these never-run tests (unless
                 # they read a patched file), to see on the scorer what they cost us
                 # and whether they really fail.
                 keep = set(keep) - {n for n in expensive
                                     if id_of[n].rsplit("::", 1)[1] in EXP_DROP and n not in forced}
+            keep = set(keep) | tp_keep
             cpu = sum(v[1] for v in verdict.values())
             total, imports, user, system = (verdicts.get("_stats", {}).get(commit, ()) + (0,) * 4)[:4]
             if os.environ.get("BR_DEBUG") == commit:
