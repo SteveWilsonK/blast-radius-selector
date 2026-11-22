@@ -729,8 +729,20 @@ def emergency():
     sys.stdout.flush()
 
 
+def nothing():
+    """Measuring build (never the final): select no test for any commit."""
+    commit_dir = os.path.join(DATA, "commits")
+    lines = [json.dumps({"commit": name[:-6], "workers": []}, separators=(",", ":"))
+             for name in sorted(os.listdir(commit_dir)) if name.endswith(".patch")]
+    sys.stdout.write("\n".join(lines) + ("\n" if lines else ""))
+    sys.stdout.flush()
+
+
 if __name__ == "__main__":
     try:
+        if os.environ.get("BR_NOTHING", "1") == "1":
+            nothing()
+            sys.exit(0)
         main()
     except Exception as error:  # noqa: BLE001
         log(f"selector failed ({error!r}); answering with every test")
