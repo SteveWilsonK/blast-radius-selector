@@ -57,6 +57,8 @@ TRACK_HARD_ONLY = os.environ.get("BR_TRACK_HARD_ONLY", "0") == "1"
 TRACK_NO_DROPPED = os.environ.get("BR_TRACK_NO_DROPPED", "0") == "1"
 # On: costly tests are planned as before the never-run rule and only left out when run.
 SOFT_SKIP = os.environ.get("BR_SOFT_SKIP", "0") == "1"
+# With SOFT_SKIP: a slice of one of the two giant tests is not run either.
+SKIP_GIANT = os.environ.get("BR_SKIP_GIANT", "0") == "1"
 # Commits with at most this many failing tests get each of them run again alone (0 = off).
 RECHECK = int(os.environ.get("BR_RECHECK", "0"))
 # On: tests that failed in this batch are run once on the unpatched code; the ones that
@@ -241,7 +243,8 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
             # Planned exactly as a test that runs (order, grouping, stop rule), but the
             # child leaves it out; it is then decided like any never-run costly test.
             skipped.append(number)
-        elif estimate >= (5.0 if SOFT_SKIP else policy.NEVER_RUN):
+        elif estimate >= (5.0 if SOFT_SKIP and not (SKIP_GIANT and full >= policy.GIANT)
+                          else policy.NEVER_RUN):
             if full < policy.GIANT and policy.SOFT_CAP > 0:
                 # A moderately costly test is run for a short while only: a failure in
                 # that time selects it, otherwise it is taken as passing.
