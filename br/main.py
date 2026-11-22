@@ -786,7 +786,10 @@ def main():
                 proxy = TP_SLICED.get(commit)
                 family_failed = any(id_of[n].startswith(TP_FAMILY) for n in failed)
                 proxy_failed = proxy is not None and verdict.get(proxy, (None,))[0] == 1
-                if proxy_failed and family_failed:
+                proxy_ran = proxy is not None and verdict.get(proxy, (None,))[0] in (0, 1, 6)
+                # Nearly everything that ran failed: the patch breaks sqlglot broadly.
+                broken = len(ran) >= 20 and len(failed) >= 0.9 * len(ran)
+                if (proxy_failed and family_failed) or (family_failed and not proxy_ran) or broken:
                     tp_keep = {n for n in selected if id_of[n] == TP_GIANT}
                 elif proxy_failed:
                     # The slice of the optimizer test failed but no executor test did:
