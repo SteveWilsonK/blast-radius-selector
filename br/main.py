@@ -552,6 +552,13 @@ def main():
         from .execute import run_guarded
 
         preload = ["unittest", "unittest.mock"]
+        if os.environ.get("BR_PRELOAD_STD", "1") == "1":
+            # Modules every test child would otherwise import for itself: what the test
+            # files and the runner pull in, none of it part of sqlglot.
+            preload += ["concurrent.futures", "concurrent.futures.process", "multiprocessing",
+                        "queue", "sqlite3", "csv", "gzip", "calendar", "pytz", "dateutil",
+                        "dateutil.parser", "dateutil.relativedelta", "tempfile", "decimal",
+                        "br.inline_pool", "br.overlay", "br.lazy", "br.policy", "br.slicer"]
         heavy = ("tests/test_optimizer.py", "tests/test_executor.py")
         if any(t[1].startswith(heavy) for job in jobs for t in job["tests"]):
             preload += ["duckdb"] if os.environ.get("BR_LAZY", "1") == "1" else \
