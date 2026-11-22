@@ -52,7 +52,7 @@ RULED_OUT = {}   # commit -> candidates dropped because nothing they read change
 
 ALIKE = {}       # costly test number -> numbers of the cheap tests most like it
 SOFT = set()     # costly tests decided by their look-alikes alone
-EARLY = os.environ.get("BR_EARLY", "0") == "1"
+EARLY = os.environ.get("BR_EARLY", "1") == "1"
 HELPER = []      # the early helper process, when there is one
 # Measuring builds only (never the final): "main", "state" or "bodies" does that part twice.
 DIAG = os.environ.get("BR_DIAG", "")

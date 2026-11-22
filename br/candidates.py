@@ -44,7 +44,7 @@ class Analysis:
 
 
 FIXTURES = "tests/fixtures/"
-FIXTURE_COMMENTS = os.environ.get("BR_FIXTURE_COMMENTS", "0") == "1"
+FIXTURE_COMMENTS = os.environ.get("BR_FIXTURE_COMMENTS", "1") == "1"
 
 
 def _cases_text(text):
