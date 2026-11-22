@@ -58,6 +58,32 @@ def run_guarded(jobs, parallel, deadline, preload, log=lambda *a: None, warm=(),
                         __import__(name)
                     took = time.process_time() - before
                     log(f"warm import took {took:.3f}s")
+                    if os.environ.get("BR_PRELOAD_TESTS", "0") == "1":
+                        # Test files several children need are loaded once here. A child
+                        # whose patch touches a loaded module swaps code or starts clean,
+                        # so a shared copy is never used with stale sqlglot.
+                        before = time.process_time()
+                        uses = {}
+                        dialect_jobs = 0
+                        for job in jobs:
+                            if job.get("state"):
+                                continue
+                            paths = {t[1].split("::", 1)[0] for t in job["tests"]}
+                            for path in paths:
+                                uses[path] = uses.get(path, 0) + 1
+                            dialect_jobs += any(p.startswith("tests/dialects/") for p in paths)
+                        # Not the two files that open duckdb and pandas: a process forked
+                        # after those are set up spins its helper threads.
+                        heavy = ("tests/test_optimizer.py", "tests/test_executor.py")
+                        wanted = sorted(p for p, n in uses.items() if n >= 2 and p not in heavy)
+                        if dialect_jobs >= 2:
+                            wanted.insert(0, "tests/dialects/test_dialect.py")
+                        for path in wanted:
+                            try:
+                                __import__(path[:-3].replace("/", "."))
+                            except Exception:  # noqa: BLE001
+                                pass
+                        log(f"LEDGER test-preload {time.process_time() - before:.3f} {len(wanted)}")
                     if os.environ.get("BR_SWAP", "0") == "1":
                         before = time.process_time()
                         from . import swap
