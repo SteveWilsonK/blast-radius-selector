@@ -268,6 +268,7 @@ def run(job, out_fd):
     stop_all = False
     stop_code = 3
     probe = bool(job.get("probe"))
+    skip = set(job.get("skip", ()))
     soft = set(job.get("capped", ()))
     from .policy import SOFT_CAP as soft_cap
     need_state = False
@@ -292,9 +293,18 @@ def run(job, out_fd):
             continue
         if stop_all:
             for number, _, _ in items:
-                code = 3 if number in forced else stop_code
+                code = 5 if number in skip else (3 if number in forced else stop_code)
                 out.write(json.dumps([number, code, 0.0]) + "\n")
             continue
+        if skip:
+            # Planned like any other candidate, but too costly to run: the caller
+            # decides these on other evidence.
+            for number, _, _ in items:
+                if number in skip:
+                    out.write(json.dumps([number, 5, 0.0]) + "\n")
+            items = [item for item in items if item[0] not in skip]
+            if not items:
+                continue
         module_name = path[:-3].replace("/", ".")
         phase_limit = PHASE_LIMIT * job.get("speed", 1.0) if not _timeouts[0] else 2.0
         try:

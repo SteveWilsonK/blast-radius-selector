@@ -54,6 +54,8 @@ ALIKE = {}       # costly test number -> numbers of the cheap tests most like it
 SOFT = set()     # costly tests decided by their look-alikes alone
 JOBS = {}        # commit -> the job its candidates last ran as
 TRACK_HARD_ONLY = os.environ.get("BR_TRACK_HARD_ONLY", "0") == "1"
+# On: costly tests are planned as before the never-run rule and only left out when run.
+SOFT_SKIP = os.environ.get("BR_SOFT_SKIP", "0") == "1"
 # Commits with at most this many failing tests get each of them run again alone (0 = off).
 RECHECK = int(os.environ.get("BR_RECHECK", "0"))
 # On: tests that failed in this batch are run once on the unpatched code; the ones that
@@ -104,6 +106,7 @@ def decide(selected, verdict, forced=(), ruled_out=0, capped=()):
     # A costly test that was to get a short allowance but was never reached is decided
     # like one that is not run at all: by its look-alikes.
     waiting = [n for n in unknown if n in capped and (n in ALIKE or SOFT_ALL)]
+    waiting += [n for n in selected if verdict.get(n, (None,))[0] == 5]   # planned, left out by the child
     keep = set(failed) | (set(unknown) - set(waiting))
     # Tests the state comparison ruled out count as passed, but only alongside tests
     # that really ran: on their own they say nothing about a test that does read
@@ -146,6 +149,7 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
     specs = []
     expensive = []
     capped = []
+    skipped = []
     plans = {}
     for bit, number in maps.bits(analysis.strong):
         full = cost_of.get(number, seconds[number]) * COST_SCALE
@@ -220,7 +224,11 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
             if names and len(names) < 12:
                 cases = {"__dialects__": names}
                 estimate = full * (0.05 + len(names) / 34.0)
-        if estimate >= policy.NEVER_RUN:
+        if SOFT_SKIP and policy.NEVER_RUN <= estimate < 5.0 and full < policy.GIANT:
+            # Planned exactly as a test that runs (order, grouping, stop rule), but the
+            # child leaves it out; it is then decided like any never-run costly test.
+            skipped.append(number)
+        elif estimate >= (5.0 if SOFT_SKIP else policy.NEVER_RUN):
             if full < policy.GIANT and policy.SOFT_CAP > 0:
                 # A moderately costly test is run for a short while only: a failure in
                 # that time selects it, otherwise it is taken as passing.
@@ -233,6 +241,9 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
                 continue
         specs.append([number, id_of[number], (5.0 + full * 25) * SPEED, seconds[number],
                       estimate, cases, 0, full])
+    if os.environ.get("BR_WHOLE") == "1":
+        for spec in specs:      # development: no test is cut down to fixture cases
+            spec[4], spec[5] = spec[7], None
     if not specs:
         # Nothing here is cheap enough to run: remember the moderately costly ones.
         UNRUNNABLE[commit] = {number for number, _ in expensive if number in SOFT}
@@ -279,7 +290,7 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
                   if path.endswith(".py")}
     return {"key": commit, "root": SOURCE, "files": files, "pickle": analysis.pickle,
             "load_lines": load_lines,
-            "prior": prior, "tests": tests_spec, "capped": capped,
+            "prior": prior, "tests": tests_spec, "capped": capped, "skip": skipped,
             # The stop rule in the child counts on costly tests being selected; the
             # moderately costly ones are decided apart, so it is not told about them.
             "expensive": [e for e in expensive if e[0] not in SOFT] if TRACK_HARD_ONLY else expensive,
