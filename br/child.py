@@ -30,7 +30,7 @@ VALUE_ORDER = os.environ.get("BR_VALUE_ORDER", "1") == "1"
 _ignore = [False]
 DIAG_BODIES = os.environ.get("BR_DIAG", "") == "bodies"
 # CPU seconds one commit's child may spend before it stops running tests (0 = no limit).
-COMMIT_BUDGET = float(os.environ.get("BR_COMMIT_BUDGET", "0.3"))
+COMMIT_BUDGET = float(os.environ.get("BR_COMMIT_BUDGET", "0.10"))
 STAKES_K = float(os.environ.get("BR_STAKES_K", "0.5"))
 # On: the flat budget holds until the first failure, k x stakes after it.
 STAKES_AFTER = os.environ.get("BR_STAKES_AFTER", "1") == "1"
