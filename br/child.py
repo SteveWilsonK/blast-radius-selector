@@ -308,6 +308,7 @@ def run(job, out_fd):
     probe = bool(job.get("probe"))
     skip = set(job.get("skip", ()))
     started_at = time.process_time()
+    budget_base = [started_at]   # moved on by the CPU of sliced proxy tests (not budgeted)
     unrun_here = set()
     soft = set(job.get("capped", ()))
     giant = set(job.get("giant_cap", ()))
@@ -464,14 +465,14 @@ def run(job, out_fd):
             if not job.get("run_all") and time.process_time() > budget:
                 raise OutOfBudget()
             if (STAKES_K > 0 and not job.get("run_all") and (tracker.failed or not STAKES_AFTER)
-                    and time.process_time() - started_at > STAKES_K * tracker.stakes()):
+                    and time.process_time() - budget_base[0] > STAKES_K * tracker.stakes()):
                 # One CPU second costs one score second: stop once the CPU spent here
                 # passes k times what verifying the rest could still save.
                 if tracker.failed:
                     raise OutOfBudget()
                 raise SkipRest()
             if (COMMIT_BUDGET > 0 and not job.get("run_all") and not (STAKES_AFTER and tracker.failed)
-                    and time.process_time() - started_at > COMMIT_BUDGET):
+                    and time.process_time() - budget_base[0] > COMMIT_BUDGET):
                 # This commit has had its CPU: what is left is selected if a failure
                 # was seen and taken as passing if none was.
                 if tracker.failed:
@@ -541,6 +542,8 @@ def run(job, out_fd):
                 _state["reported"] = _state.get("reported", 0) + 1
                 return
             cpu = (time.process_time() - _state["t0"]) * SLOW
+            if number in giant:
+                budget_base[0] += time.process_time() - _state["t0"]
             failed = 1 if case.id() in _result.bad else 0
             # A giant test stopped at its CPU allowance with no failure so far: 6.
             status = 6 if (number in giant and _cap_hit[0] and not failed) else failed
