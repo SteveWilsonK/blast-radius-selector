@@ -58,7 +58,10 @@ TRACK_NO_DROPPED = os.environ.get("BR_TRACK_NO_DROPPED", "0") == "1"
 # On: costly tests are planned as before the never-run rule and only left out when run.
 SOFT_SKIP = os.environ.get("BR_SOFT_SKIP", "0") == "1"
 # With SOFT_SKIP: a slice of one of the two giant tests is not run either.
-SKIP_GIANT = os.environ.get("BR_SKIP_GIANT", "0") == "1"
+# 1: such a slice is taken out of the plan; 2: it stays in the plan (so the stop rule
+# still counts it) and is only left out by the child, then decided like a never-run giant.
+SKIP_GIANT = int(os.environ.get("BR_SKIP_GIANT", "0"))
+GIANT_SKIPPED = set()
 # Commits with at most this many failing tests get each of them run again alone (0 = off).
 RECHECK = int(os.environ.get("BR_RECHECK", "0"))
 # On: tests that failed in this batch are run once on the unpatched code; the ones that
@@ -105,11 +108,13 @@ def decide(selected, verdict, forced=(), ruled_out=0, capped=()):
     failed = [n for n in selected if verdict.get(n, (None,))[0] == 1]
     ran = [n for n in selected if verdict.get(n, (3,))[0] in (0, 1)]
     unknown = [n for n in selected if n in verdict and verdict[n][0] == 3]
-    expensive = [n for n in selected if n not in verdict]
+    expensive = [n for n in selected if n not in verdict
+                 or (n in GIANT_SKIPPED and verdict[n][0] == 5)]
     # A costly test that was to get a short allowance but was never reached is decided
     # like one that is not run at all: by its look-alikes.
     waiting = [n for n in unknown if n in capped and (n in ALIKE or SOFT_ALL)]
-    waiting += [n for n in selected if verdict.get(n, (None,))[0] == 5]   # planned, left out by the child
+    waiting += [n for n in selected if verdict.get(n, (None,))[0] == 5
+                and n not in GIANT_SKIPPED]   # planned, left out by the child
     keep = set(failed) | (set(unknown) - set(waiting))
     # Tests the state comparison ruled out count as passed, but only alongside tests
     # that really ran: on their own they say nothing about a test that does read
@@ -239,11 +244,13 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
             if names and len(names) < 12:
                 cases = {"__dialects__": names}
                 estimate = full * (0.05 + len(names) / 34.0)
-        if SOFT_SKIP and policy.NEVER_RUN <= estimate < 5.0 and full < policy.GIANT:
+        if SOFT_SKIP and policy.NEVER_RUN <= estimate < 5.0 and (full < policy.GIANT or SKIP_GIANT == 2):
             # Planned exactly as a test that runs (order, grouping, stop rule), but the
             # child leaves it out; it is then decided like any never-run costly test.
             skipped.append(number)
-        elif estimate >= (5.0 if SOFT_SKIP and not (SKIP_GIANT and full >= policy.GIANT)
+            if full >= policy.GIANT:
+                GIANT_SKIPPED.add(number)
+        elif estimate >= (5.0 if SOFT_SKIP and not (SKIP_GIANT == 1 and full >= policy.GIANT)
                           else policy.NEVER_RUN):
             if full < policy.GIANT and policy.SOFT_CAP > 0:
                 # A moderately costly test is run for a short while only: a failure in
