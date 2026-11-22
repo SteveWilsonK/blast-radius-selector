@@ -776,7 +776,7 @@ def main():
                 proxy = TP_SLICED.get(commit)
                 family_failed = any(id_of[n].startswith(TP_FAMILY) for n in failed)
                 proxy_failed = proxy is not None and verdict.get(proxy, (None,))[0] == 1
-                if proxy_failed or (TP_FAMILY_RULE and family_failed):
+                if proxy_failed and family_failed:
                     tp_keep = {n for n in selected if id_of[n] == TP_GIANT}
             if EXP_DROP:
                 # Experiment builds only: never select these never-run tests (unless
