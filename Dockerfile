@@ -12,13 +12,17 @@ COPY tools/fetch_sqlglot.py /app/tools/fetch_sqlglot.py
 RUN python /app/tools/fetch_sqlglot.py /opt/sqlglot
 
 COPY br /app/br
+# Bytecode without column tables: smaller, faster to load (tracebacks lose columns only).
+ENV PYTHONNODEBUGRANGES=1
 COPY tools/build_enumdyn.py /app/tools/build_enumdyn.py
+COPY tools/build_modgraph.py /app/tools/build_modgraph.py
 COPY maps/map.bin maps/refs.bin maps/cond.bin maps/reads.bin maps/alike.json /app/maps/
 # The disk is read-only at run time: compile everything now. Then take a fingerprint
 # of everything the pinned sqlglot holds once loaded, to compare patched code against.
 RUN python -m compileall -q /app/br /opt/sqlglot/sqlglot /opt/sqlglot/tests \
     && cd /app && python -m br.state /opt/sqlglot /app/maps/state.bin \
     && python /app/tools/build_enumdyn.py /opt/sqlglot /app/maps/enumdyn.bin \
+    && python /app/tools/build_modgraph.py /opt/sqlglot /app/maps/modgraph.json \
     && python -m br.blob /app/maps/map.bin /app/maps/reads.bin /app/maps/cond.bin \
        /app/maps/refs.bin /app/maps/state.bin /app/maps/enumdyn.bin \
     && chmod -R a+rX /app /opt/sqlglot
