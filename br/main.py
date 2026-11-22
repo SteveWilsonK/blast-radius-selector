@@ -51,7 +51,7 @@ RULED_OUT = {}   # commit -> candidates dropped because nothing they read change
 ALIKE = {}       # costly test number -> numbers of the cheap tests most like it
 SOFT = set()     # costly tests decided by their look-alikes alone
 # Off: a moderately costly test is selected only when it reads a patched file.
-SOFT_ALIKE = os.environ.get("BR_SOFT_ALIKE", "1") == "1"
+SOFT_ALIKE = os.environ.get("BR_SOFT_ALIKE", "0") == "1"
 
 
 def load_alike(tests):
