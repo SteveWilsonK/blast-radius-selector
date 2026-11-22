@@ -193,7 +193,7 @@ def run(job, out_fd):
     if any(name in sys.modules for name in patched) or any(
             rel.startswith("tests/") and rel.endswith(".py") for rel in job["files"]):
         swaps = None
-        if job.get("load_lines") is not None and os.environ.get("BR_SWAP", "0") == "1":
+        if job.get("load_lines") is not None and os.environ.get("BR_SWAP", "1") == "1":
             # A change inside function bodies: give the loaded functions their new
             # code instead of loading everything again (see swap.py).
             try:
