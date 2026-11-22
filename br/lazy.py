@@ -11,7 +11,7 @@ import os
 # On: query results the optimizer tests compare as pandas frames are compared as numpy
 # columns instead, with the same rules (names, dtypes, null positions, values, floats
 # to a relative 1e-5), so pandas is never imported for them.
-NO_PANDAS = os.environ.get("BR_NO_PANDAS", "0") == "1"
+NO_PANDAS = os.environ.get("BR_NO_PANDAS", "1") == "1"
 
 
 class _Frame:
