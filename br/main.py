@@ -37,6 +37,7 @@ STATE_MIN_COST = 1.0
 # Costly test number -> numbers of the cheap tests most like it (maps/alike.json).
 ALIKE = {}
 ALIKE_FILE = os.path.join(os.path.dirname(MAP), "alike.json")
+EXP_ONLY_FAILED = os.environ.get("BR_EXP_ONLY_FAILED", "1") == "1"
 EXP_DROP = set(filter(None, os.environ.get("BR_EXP_DROP", "").split(",")))
 SLICE = os.environ.get("BR_SLICE", "0") == "1"  # run tests by statement where the map allows
 
@@ -414,6 +415,12 @@ def main():
             if cleared:
                 # Left out because its look-alikes passed: a smaller risk remains.
                 keep = insure(keep, sorted(cleared), ms, policy.RISK_ALIKE_PASSED)
+            if EXP_ONLY_FAILED:
+                # Experiment build (never the final): select only the tests that failed
+                # when run here, to read on the scorer how much of our selection is
+                # unverified tests that pass (sim drop) and how many commits truly
+                # need an unverified test (misses).
+                keep = set(failed)
             if EXP_DROP:
                 # Experiment builds only: never select these never-run tests (unless
                 # they read a patched file), to see on the scorer what they cost us
