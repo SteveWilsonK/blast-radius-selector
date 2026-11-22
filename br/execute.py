@@ -188,6 +188,176 @@ def run_guarded(jobs, parallel, deadline, preload, log=lambda *a: None, warm=(),
     return results
 
 
+STD_PRELOAD = ("unittest", "unittest.mock", "concurrent.futures", "concurrent.futures.process",
+               "multiprocessing", "queue", "sqlite3", "csv", "gzip", "calendar", "pytz", "dateutil",
+               "dateutil.parser", "dateutil.relativedelta", "tempfile", "decimal",
+               "br.inline_pool", "br.overlay", "br.lazy", "br.policy", "br.slicer")
+
+
+def _serve(inbox, outbox, log, warm, root):
+    """The helper's loop: read a batch of jobs, run it, report, wait for the next."""
+    import pickle
+    import struct
+
+    out = os.fdopen(outbox, "w", buffering=1)
+    handle = os.fdopen(inbox, "rb")
+    ready = False
+    tests_loaded = False
+    served = 0
+
+    def done(key, verdicts, stats):
+        out.write(json.dumps([key, {str(n): v for n, v in verdicts.items()}, stats]) + "\n")
+
+    while True:
+        head = handle.read(8)
+        if len(head) < 8:
+            break
+        message = pickle.loads(handle.read(struct.unpack("<Q", head)[0]))
+        jobs = message["jobs"]
+        if not ready:
+            ready = True
+            if os.environ.get("BR_LAZY", "1") == "1":
+                from . import lazymods
+
+                lazymods.install()
+            started = time.process_time()
+            for name in STD_PRELOAD:
+                try:
+                    __import__(name)
+                except Exception:  # noqa: BLE001
+                    pass
+            try:
+                os.environ["SKIP_INTEGRATION"] = "0"
+                os.chdir(root)
+                if root not in sys.path:
+                    sys.path.insert(0, root)
+                for name in warm:
+                    __import__(name)
+            except Exception:  # noqa: BLE001
+                pass
+            log(f"LEDGER preload {time.process_time() - started:.3f}")
+        for name in message.get("preload") or ():
+            try:
+                __import__(name)
+            except Exception:  # noqa: BLE001
+                pass
+        for path in {job["state_path"] for job in jobs if job.get("state")}:
+            if path not in child.PINNED:
+                try:
+                    from . import state
+
+                    child.PINNED[path] = state.load(path)
+                except Exception:  # noqa: BLE001
+                    pass
+        if not tests_loaded and any(not job.get("state") for job in jobs):
+            tests_loaded = True
+            try:
+                if os.environ.get("BR_PRELOAD_TESTS", "1") == "1":
+                    before = time.process_time()
+                    uses = {}
+                    dialect_jobs = 0
+                    for job in jobs:
+                        if job.get("state"):
+                            continue
+                        paths = {t[1].split("::", 1)[0] for t in job["tests"][:8]}
+                        for path in paths:
+                            uses[path] = uses.get(path, 0) + 1
+                        dialect_jobs += any(p.startswith("tests/dialects/") for p in paths)
+                    heavy = ("tests/test_optimizer.py", "tests/test_executor.py")
+                    wanted = sorted(p for p, n in uses.items() if n >= 2 and p not in heavy)
+                    if dialect_jobs >= 2:
+                        wanted.insert(0, "tests/dialects/test_dialect.py")
+                    for path in wanted:
+                        try:
+                            __import__(path[:-3].replace("/", "."))
+                        except Exception:  # noqa: BLE001
+                            pass
+                    log(f"LEDGER test-preload {time.process_time() - before:.3f} {len(wanted)}")
+                if os.environ.get("BR_SWAP", "1") == "1":
+                    from . import swap
+
+                    swap.build_index(root)
+            except Exception:  # noqa: BLE001
+                pass
+        hurry = message.get("hurry")
+        parallel = (lambda: 1 if time.time() < hurry else 2) if hurry else 1
+        run_jobs(jobs, parallel=parallel, log=log, on_done=done)
+        served += len(jobs)
+        out.write(json.dumps("END") + "\n")
+        out.flush()
+    log(f"LEDGER helper-own {time.process_time():.3f} jobs {served}")
+
+
+class Helper:
+    """A helper process started before the main process has loaded anything big, so the
+    test children forked from it carry only sqlglot and the test files."""
+
+    def __init__(self, log, warm, root):
+        self.log = log
+        self.r, w = os.pipe()
+        r2, self.w = os.pipe()
+        self.pid = os.fork()
+        if self.pid == 0:
+            try:
+                os.close(self.r)
+                os.close(self.w)
+                _serve(r2, w, log, warm, root)
+            except BaseException:  # noqa: BLE001
+                pass
+            finally:
+                os._exit(0)
+        os.close(w)
+        os.close(r2)
+        self.buf = b""
+
+    def run(self, jobs, deadline, preload=(), hurry=None):
+        """Send one batch and collect its verdicts: key -> {number: (status, cpu)}."""
+        import pickle
+        import struct
+
+        data = pickle.dumps({"jobs": jobs, "preload": list(preload), "hurry": hurry})
+        view = memoryview(struct.pack("<Q", len(data)) + data)
+        while view:
+            view = view[os.write(self.w, view):]
+        results = {"_stats": {}}
+        while True:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                self.log("verification stopped at the deadline")
+                return results
+            ready, _, _ = select.select([self.r], [], [], min(remaining, 1.0))
+            if not ready:
+                continue
+            chunk = os.read(self.r, 1 << 20)
+            if not chunk:
+                return results           # the helper is gone
+            self.buf += chunk
+            *lines, self.buf = self.buf.split(b"\n")
+            finished = False
+            for line in lines:
+                if line == b'"END"':
+                    finished = True
+                elif line:
+                    key, verdicts, stats = json.loads(line)
+                    results[key] = {(int(n) if n.isdigit() else n): tuple(v)
+                                    for n, v in verdicts.items()}
+                    if stats:
+                        results["_stats"][key] = tuple(stats)
+            if finished:
+                return results
+
+    def close(self):
+        for fd in (self.w, self.r):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        try:
+            os.waitpid(self.pid, 0)
+        except OSError:
+            pass
+
+
 def run_jobs(jobs, parallel=2, log=lambda *a: None, on_done=None, adapt=False):
     """jobs: list of job dicts (see child.run) with a "key". Returns key -> {number: (status, cpu)}.
 

@@ -52,6 +52,8 @@ RULED_OUT = {}   # commit -> candidates dropped because nothing they read change
 
 ALIKE = {}       # costly test number -> numbers of the cheap tests most like it
 SOFT = set()     # costly tests decided by their look-alikes alone
+EARLY = os.environ.get("BR_EARLY", "0") == "1"
+HELPER = []      # the early helper process, when there is one
 # Measuring builds only (never the final): "main", "state" or "bodies" does that part twice.
 DIAG = os.environ.get("BR_DIAG", "")
 # "share": the share rule and the insurance decide a never-run giant test (old behaviour).
@@ -438,7 +440,10 @@ def refine(plans, texts, analyzer, maps, cost_of, seconds, started, count, only=
         jobs = jobs + [dict(job, key=job["key"] + "#twin") for job in jobs]
     deadline = started + max(20.0, 1.5 * count)
     try:
-        results = run_guarded(jobs, 1, deadline, [], log)
+        if HELPER:
+            results = HELPER[0].run(jobs, deadline)
+        else:
+            results = run_guarded(jobs, 1, deadline, [], log)
     except Exception as error:  # noqa: BLE001
         log(f"state comparison failed ({error!r})")
         return
@@ -477,6 +482,15 @@ def refine(plans, texts, analyzer, maps, cost_of, seconds, started, count, only=
 def main():
     global SPEED
     started = time.time()
+    if EARLY and not NO_EXEC:
+        # Before anything big is loaded here: the helper (and so every test child forked
+        # from it) then carries none of the coverage maps.
+        try:
+            from .execute import Helper
+
+            HELPER.append(Helper(log, WARM, SOURCE))
+        except Exception as error:  # noqa: BLE001
+            log(f"early helper not started ({error!r})")
     if os.environ.get("BR_GC_OFF", "1") == "1":
         # A short-lived process tree: collecting cycles only costs CPU here. The
         # helper and the test children inherit the setting.
@@ -600,6 +614,20 @@ def main():
         if any(t[1].startswith(heavy) for job in jobs for t in job["tests"]):
             preload += ["duckdb"] if os.environ.get("BR_LAZY", "1") == "1" else \
                 ["duckdb", "numpy", "pandas", "pandas.testing"]
+        if HELPER:
+            try:
+                extra = [name for name in preload if name in ("duckdb", "numpy", "pandas", "pandas.testing")]
+                found = HELPER[0].run(jobs, deadline, extra, hurry)
+                if followup is not None:
+                    more = followup(found)
+                    if more:
+                        second = HELPER[0].run(more, deadline, extra, hurry)
+                        found.setdefault("_stats", {}).update(second.pop("_stats", {}))
+                        found.update(second)
+                return found
+            except Exception as error:  # noqa: BLE001
+                log(f"verification failed ({error!r}); selecting unrun")
+                return {}
         try:
             found = run_guarded(jobs, width, deadline, preload, log, warm=WARM,
                                 adapt=policy.ADAPT and not os.environ.get("BR_SPEED"),
@@ -700,6 +728,8 @@ def main():
             except Exception as error:  # noqa: BLE001
                 log(f"recheck failed ({error!r})")
 
+    for helper in HELPER:
+        helper.close()
     out = []
     report = []
     total_cost = 0
