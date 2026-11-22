@@ -7,7 +7,10 @@ import os
 WORKER = 2.0
 MAX_WORKERS = 8
 # A test this costly to run here is never run: it is selected or left out on evidence.
-NEVER_RUN = 5.0
+NEVER_RUN = float(os.environ.get("BR_NEVER_RUN", "5.0"))
+# Costly tests under this run cost are decided by their look-alikes alone; the ones
+# above it keep the share rule and the insurance.
+GIANT = 5.0
 # Learn the price of a CPU second from the tests as they run (off until checked).
 ADAPT = os.environ.get("BR_ADAPT") == "1"
 # Share of run candidates that must fail before unrun costly candidates are selected.

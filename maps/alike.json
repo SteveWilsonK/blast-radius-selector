@@ -1,0 +1,97 @@
+{
+"tests/test_executor.py::TestExecutor::test_execute_tpcds": [
+"tests/test_optimizer.py::TestOptimizer::test_tpch",
+"tests/test_executor.py::TestExecutor::test_subqueries",
+"tests/test_optimizer.py::TestOptimizer::test_optimize_special_joins",
+"tests/test_executor.py::TestExecutor::test_execute_callable",
+"tests/test_optimizer.py::TestOptimizer::test_optimize_subqueries_in_join_on",
+"tests/test_optimizer.py::TestOptimizer::test_optimize_subqueries_in_aggregates",
+"tests/test_executor.py::TestExecutor::test_correlated_exists_over_scalar_aggregate",
+"tests/test_optimizer.py::TestOptimizer::test_merge_asof_join_inputs"
+],
+"tests/test_executor.py::TestExecutor::test_optimized_tpch": [
+"tests/test_optimizer.py::TestOptimizer::test_optimize_joins",
+"tests/test_parser.py::TestParser::test_large_exponent_array_index",
+"tests/test_optimizer.py::TestOptimizer::test_eliminate_joins",
+"tests/test_transpile.py::TestTranspile::test_time",
+"tests/test_expressions.py::TestExprs::test_data_type_builder",
+"tests/test_parser.py::TestParser::test_window_clause_without_from",
+"tests/test_parser.py::TestParser::test_is_precedence",
+"tests/test_expressions.py::TestExprs::test_function_building"
+],
+"tests/test_generator.py::TestGenerator::test_generator_memory": [
+"tests/test_time.py::TestTime::test_canonical_time_format_vocabulary",
+"tests/test_expressions.py::TestExprs::test_data_type_builder",
+"tests/test_expressions.py::TestExprs::test_named_selects_long_by_name_chain",
+"tests/test_expressions.py::TestExprs::test_function_building",
+"tests/test_expressions.py::TestExprs::test_named_selects_set_operations",
+"tests/test_parser.py::TestParser::test_parse_drop_schema",
+"tests/test_expressions.py::TestExprs::test_replace_tables_builtin_parent",
+"tests/test_expressions.py::TestExprs::test_named_selects"
+],
+"tests/test_optimizer.py::TestOptimizer::test_annotate_funcs": [
+"tests/test_optimizer.py::TestOptimizer::test_annotate_types",
+"tests/test_optimizer.py::TestOptimizer::test_map_annotation",
+"tests/test_parser.py::TestParser::test_values_as_identifier"
+],
+"tests/test_optimizer.py::TestOptimizer::test_merge_subqueries": [
+"tests/test_optimizer.py::TestOptimizer::test_qualify_struct_star_source_types",
+"tests/test_optimizer.py::TestOptimizer::test_canonicalize_internal_names",
+"tests/test_optimizer.py::TestOptimizer::test_qualify_columns__invalid",
+"tests/test_optimizer.py::TestOptimizer::test_optimize_subqueries_in_aggregates",
+"tests/test_optimizer.py::TestOptimizer::test_values_annotation",
+"tests/test_optimizer.py::TestOptimizer::test_optimize_subqueries_in_join_on",
+"tests/test_optimizer.py::TestOptimizer::test_qualify_struct_star_json_ordering",
+"tests/test_optimizer.py::TestOptimizer::test_qualify_correlated_shadowed_struct_path"
+],
+"tests/test_optimizer.py::TestOptimizer::test_optimize_in_nulls": [
+"tests/test_optimizer.py::TestOptimizer::test_optimize_subqueries_in_join_on",
+"tests/test_optimizer.py::TestOptimizer::test_optimize_special_joins",
+"tests/test_optimizer.py::TestOptimizer::test_optimize_subqueries_in_aggregates",
+"tests/test_optimizer.py::TestOptimizer::test_merge_asof_join_inputs",
+"tests/test_optimizer.py::TestOptimizer::test_tpch",
+"tests/test_optimizer.py::TestOptimizer::test_qualify_semi_anti_join_alias_shadowing_column",
+"tests/test_optimizer.py::TestOptimizer::test_optimize_distinct_on_predicates",
+"tests/test_optimizer.py::TestOptimizer::test_optimize_scalar_subquery_predicate_multiple_rows"
+],
+"tests/test_optimizer.py::TestOptimizer::test_qualify_columns": [
+"tests/test_optimizer.py::TestOptimizer::test_canonicalize_internal_names",
+"tests/test_optimizer.py::TestOptimizer::test_pushdown_projection",
+"tests/test_optimizer.py::TestOptimizer::test_qualify_tables",
+"tests/test_optimizer.py::TestOptimizer::test_qualify_struct_star_source_types",
+"tests/test_optimizer.py::TestOptimizer::test_resolver_column_context",
+"tests/test_optimizer.py::TestOptimizer::test_case_sensitive_json_dot_access",
+"tests/dialects/test_duckdb.py::TestDuckDB::test_duckdb",
+"tests/test_optimizer.py::TestOptimizer::test_qualify_struct_star_json_ordering"
+],
+"tests/test_optimizer.py::TestOptimizer::test_scope": [
+"tests/test_optimizer.py::TestOptimizer::test_qualify_correlated_shadowed_struct_path",
+"tests/test_optimizer.py::TestOptimizer::test_qualify_struct_star_source_types",
+"tests/test_optimizer.py::TestOptimizer::test_annotate_semi_structured_dot_parts",
+"tests/test_lineage.py::TestLineage::test_lineage_normalize",
+"tests/test_optimizer.py::TestOptimizer::test_qualify_parquet_alias_collision",
+"tests/test_optimizer.py::TestOptimizer::test_qualify_columns__invalid",
+"tests/test_optimizer.py::TestOptimizer::test_journal",
+"tests/test_optimizer.py::TestOptimizer::test_annotate_row_types"
+],
+"tests/test_optimizer.py::TestOptimizer::test_tpcds": [
+"tests/test_optimizer.py::TestOptimizer::test_tpch",
+"tests/test_optimizer.py::TestOptimizer::test_optimize_special_joins",
+"tests/test_executor.py::TestExecutor::test_subqueries",
+"tests/test_optimizer.py::TestOptimizer::test_optimize_subqueries_in_join_on",
+"tests/test_executor.py::TestExecutor::test_execute_callable",
+"tests/test_optimizer.py::TestOptimizer::test_optimize_subqueries_in_aggregates",
+"tests/test_optimizer.py::TestOptimizer::test_merge_asof_join_inputs",
+"tests/test_optimizer.py::TestOptimizer::test_optimize_distinct_on_predicates"
+],
+"tests/test_parser.py::TestParser::test_max_nodes": [
+"tests/test_expressions.py::TestExprs::test_set_metadata",
+"tests/test_parser.py::TestParser::test_multi",
+"tests/test_parser.py::TestParser::test_quoted_identifier_meta",
+"tests/test_parser.py::TestParser::test_missing_by",
+"tests/test_expressions.py::TestExprs::test_find_ancestor",
+"tests/test_parser.py::TestParser::test_identify",
+"tests/test_expressions.py::TestExprs::test_text",
+"tests/test_expressions.py::TestExprs::test_hash"
+]
+}

@@ -312,6 +312,7 @@ def run(job, out_fd):
             signal.setitimer(signal.ITIMER_PROF, 0)
             for number, _, _ in items:
                 out.write(json.dumps([number, 1, 0.0]) + "\n")
+            fail_scope.add(path if DROP_REST == "file" else (path, cls_name))
             continue
         if path not in job["files"]:
             # Tests that only need some statements of their body get a shortened body.

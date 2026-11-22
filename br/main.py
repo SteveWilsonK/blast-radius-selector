@@ -48,6 +48,25 @@ def log(*args):
 RULED_OUT = {}   # commit -> candidates dropped because nothing they read changed
 
 
+ALIKE = {}       # costly test number -> numbers of the cheap tests most like it
+SOFT = set()     # costly tests decided by their look-alikes alone
+
+
+def load_alike(tests):
+    """Look-alikes of the tests too costly to run (maps/alike.json, from the pinned commit)."""
+    path = os.path.join(os.path.dirname(MAP), "alike.json")
+    if not os.path.exists(path):
+        return
+    number = {t["id"]: t["number"] for t in tests}
+    try:
+        with open(path) as handle:
+            for name, others in json.load(handle).items():
+                if name in number:
+                    ALIKE[number[name]] = {number[o] for o in others if o in number}
+    except Exception as error:  # noqa: BLE001
+        log(f"look-alike file unreadable ({error!r})")
+
+
 def decide(selected, verdict, forced=(), ruled_out=0):
     """From what was run to what is selected.
 
@@ -63,12 +82,20 @@ def decide(selected, verdict, forced=(), ruled_out=0):
     # Tests the state comparison ruled out count as passed, but only alongside tests
     # that really ran: on their own they say nothing about a test that does read
     # what changed.
+    soft = [n for n in expensive if n in SOFT and n in ALIKE]
+    hard = [n for n in expensive if n not in soft]
     if policy.select_expensive(len(ran) + (ruled_out if ran else 0), len(failed)):
-        keep |= set(expensive)
+        keep |= set(hard)
     else:
         # A test that reads a patched file is never dropped on the others' evidence.
-        keep |= set(expensive) & set(forced)
-    return keep, failed, ran, unknown, expensive
+        keep |= set(hard) & set(forced)
+    # Moderately costly tests: selected when one of the tests most like them failed
+    # (or they read a patched file), left out otherwise.
+    failed_set = set(failed)
+    for n in soft:
+        if n in forced or failed_set & ALIKE[n]:
+            keep.add(n)
+    return keep, failed, ran, unknown, hard
 
 
 def insure(keep, dropped, ms, risk):
@@ -156,6 +183,8 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
                 estimate = full * (0.05 + len(names) / 34.0)
         if estimate >= policy.NEVER_RUN:
             expensive.append((number, seconds[number]))
+            if full < policy.GIANT:
+                SOFT.add(number)
             continue
         specs.append([number, id_of[number], (5.0 + full * 25) * SPEED, seconds[number],
                       estimate, cases, 0, full])
@@ -322,6 +351,7 @@ def main():
     tests = json.load(open(os.path.join(DATA, "tests.json")))["tests"]
     ms = {t["number"]: int(t["seconds"] * 1000 + 0.5) for t in tests}
     maps = Maps(MAP, tests)
+    load_alike(tests)
     analyzer = Analyzer(maps, SOURCE, os.path.join(os.path.dirname(MAP), "refs.bin"),
                         os.path.join(os.path.dirname(MAP), "cond.bin"))
     commit_dir = os.path.join(DATA, "commits")
