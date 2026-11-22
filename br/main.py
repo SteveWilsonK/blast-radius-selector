@@ -781,19 +781,24 @@ def main():
                 risk = policy.RISK_UNVERIFIED if thin else policy.RISK_VERIFIED
                 keep = insure(keep, left_out, ms, risk)
             tp_keep = set()
+            tp_drop = set()
             if TP_RULE:
                 proxy = TP_SLICED.get(commit)
                 family_failed = any(id_of[n].startswith(TP_FAMILY) for n in failed)
                 proxy_failed = proxy is not None and verdict.get(proxy, (None,))[0] == 1
                 if proxy_failed and family_failed:
                     tp_keep = {n for n in selected if id_of[n] == TP_GIANT}
+                elif proxy_failed:
+                    # The slice of the optimizer test failed but no executor test did:
+                    # taken as an artefact of the slice, not a verdict on the test.
+                    tp_drop.add(proxy)
             if EXP_DROP:
                 # Experiment builds only: never select these never-run tests (unless
                 # they read a patched file), to see on the scorer what they cost us
                 # and whether they really fail.
                 keep = set(keep) - {n for n in expensive
                                     if id_of[n].rsplit("::", 1)[1] in EXP_DROP and n not in forced}
-            keep = set(keep) | tp_keep
+            keep = (set(keep) | tp_keep) - tp_drop
             cpu = sum(v[1] for v in verdict.values())
             total, imports, user, system = (verdicts.get("_stats", {}).get(commit, ()) + (0,) * 4)[:4]
             if os.environ.get("BR_DEBUG") == commit:
