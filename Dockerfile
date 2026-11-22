@@ -12,6 +12,8 @@ COPY tools/fetch_sqlglot.py /app/tools/fetch_sqlglot.py
 RUN python /app/tools/fetch_sqlglot.py /opt/sqlglot
 
 COPY br /app/br
+# Bytecode without column tables: smaller, faster to load (tracebacks lose columns only).
+ENV PYTHONNODEBUGRANGES=1
 COPY tools/build_enumdyn.py /app/tools/build_enumdyn.py
 COPY tools/build_modgraph.py /app/tools/build_modgraph.py
 COPY maps/map.bin maps/refs.bin maps/cond.bin maps/reads.bin maps/alike.json /app/maps/
