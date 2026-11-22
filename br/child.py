@@ -26,6 +26,10 @@ class TestTimeout(BaseException):
 CAP = float(os.environ.get("BR_CAP", "0"))
 _capped = [False]
 _cap_hit = [False]
+_allowed = [False]
+# After a commit's first failure a test may use at most its recorded seconds times this
+# in CPU before it is abandoned and selected unrun (0 = no such allowance).
+ALLOW = float(os.environ.get("BR_ALLOW", "0"))
 # Price of a CPU second when, after a commit's first failure, each remaining candidate is
 # judged on its own (0 = off: the remaining candidates are run or left as one block).
 PICK = float(os.environ.get("BR_PICK", "0"))
@@ -451,6 +455,15 @@ def run(job, out_fd):
                 # One test already ran out of time: give the rest far less rope.
                 limit = min(limit, 2.0 + 4.0 * info[number][1])
             cap = giant_budget if number in giant else (soft_cap if number in soft else CAP)
+            _allowed[0] = False
+            if ALLOW > 0 and tracker.failed and number not in giant:
+                # The commit already has a failure, so this test is selected if left
+                # unrun. Checking it may cost at most what selecting it would: its
+                # recorded seconds (times ALLOW). Past that it is abandoned and selected.
+                allowance = max(0.01, info[number][0] * ALLOW)
+                if not cap or allowance < cap:
+                    cap = allowance
+                    _allowed[0] = True
             _cap_hit[0] = False
             _capped[0] = bool(cap) and cap < limit
             signal.setitimer(signal.ITIMER_PROF, cap if _capped[0] else limit)
@@ -472,6 +485,14 @@ def run(job, out_fd):
             failed = 1 if case.id() in _result.bad else 0
             # A giant test stopped at its CPU allowance with no failure so far: 6.
             status = 6 if (number in giant and _cap_hit[0] and not failed) else failed
+            if _allowed[0] and _cap_hit[0] and not failed:
+                # Abandoned at its allowance: unrun, so the caller selects it.
+                out.write(json.dumps([number, 3, round(cpu, 4)]) + "\n")
+                _state["reported"] = _state.get("reported", 0) + 1
+                recorded, run_cost = info[number]
+                tracker.todo_sim -= recorded
+                tracker.todo_cpu -= run_cost
+                return
             out.write(json.dumps([number, status, round(cpu, 4)]) + "\n")
             _state["reported"] = _state.get("reported", 0) + 1
             recorded, run_cost = info[number]
