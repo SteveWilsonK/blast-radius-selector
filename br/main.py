@@ -57,7 +57,7 @@ JOBS = {}        # commit -> the job its candidates last ran as
 RECHECK = int(os.environ.get("BR_RECHECK", "0"))
 # On: tests that failed in this batch are run once on the unpatched code; the ones that
 # fail there too are never selected. Only tests up to BASELINE_MAX seconds of run cost.
-BASELINE = os.environ.get("BR_BASELINE", "0") == "1"
+BASELINE = os.environ.get("BR_BASELINE", "1") == "1"
 BASELINE_MAX = float(os.environ.get("BR_BASELINE_MAX", "0.3"))
 UNRUNNABLE = {}  # commit -> its moderately costly candidates, when none of its candidates ran
 # On: such candidates are left out (no look-alike could fail), unless they read a patched file.
