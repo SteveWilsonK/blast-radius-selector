@@ -26,6 +26,7 @@ class TestTimeout(BaseException):
 CAP = float(os.environ.get("BR_CAP", "0"))
 _capped = [False]
 _cap_hit = [False]
+VALUE_ORDER = os.environ.get("BR_VALUE_ORDER", "1") == "1"
 _ignore = [False]
 DIAG_BODIES = os.environ.get("BR_DIAG", "") == "bodies"
 # CPU seconds one commit's child may spend before it stops running tests (0 = no limit).
@@ -322,7 +323,26 @@ def run(job, out_fd):
 
     budget = time.process_time() + job.get("budget", 1e9)
     fail_scope = set()
-    for path, cls_name, part in order:
+    position = 0
+    resorted = False
+    while position < len(order):
+        if VALUE_ORDER and tracker.failed and not resorted and not probe:
+            # The commit has a failure, so anything left unrun will be selected. From
+            # here on the candidates whose recorded seconds are largest for the CPU
+            # they take go first: a CPU budget then cuts off the least rewarding ones.
+            resorted = True
+
+            def worth(number):
+                recorded, run_cost = info[number]
+                return recorded / max(run_cost, 0.0005)
+
+            rest = order[position:]
+            for key in rest:
+                by_class[key].sort(key=lambda item: -worth(item[0]))
+            rest.sort(key=lambda key: -max(worth(item[0]) for item in by_class[key]))
+            order[position:] = rest
+        path, cls_name, part = order[position]
+        position += 1
         items = by_class[(path, cls_name, part)]
         if DROP_REST and fail_scope and not probe and \
                 (path if DROP_REST == "file" else (path, cls_name)) not in fail_scope:
