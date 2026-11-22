@@ -52,6 +52,9 @@ RULED_OUT = {}   # commit -> candidates dropped because nothing they read change
 
 ALIKE = {}       # costly test number -> numbers of the cheap tests most like it
 SOFT = set()     # costly tests decided by their look-alikes alone
+JOBS = {}        # commit -> the job its candidates last ran as
+# Commits with at most this many failing tests get each of them run again alone (0 = off).
+RECHECK = int(os.environ.get("BR_RECHECK", "0"))
 UNRUNNABLE = {}  # commit -> its moderately costly candidates, when none of its candidates ran
 # On: such candidates are left out (no look-alike could fail), unless they read a patched file.
 SOFT_BLIND = os.environ.get("BR_SOFT_BLIND", "0") == "1"
@@ -456,6 +459,7 @@ def main():
                 if commit in probing:
                     job["probe"] = True
                 jobs.append(job)
+                JOBS[commit] = job
         return jobs
 
     deadline = started + max(30.0, WALL_PER_COMMIT * len(names) - 8.0)
@@ -518,6 +522,40 @@ def main():
                 verdicts.update(more)
         except Exception as error:  # noqa: BLE001
             log(f"second pass failed ({error!r}); selecting unrun")
+
+    if RECHECK:
+        # A commit with only a few failing tests: run each of them once more, alone in
+        # a fresh child. A test that passes there failed because of what ran before it
+        # in the same process, not because of the patch, and is not selected.
+        again = []
+        for commit, selected, analysis in plans:
+            verdict = verdicts.get(commit)
+            base = JOBS.get(commit)
+            if not isinstance(verdict, dict) or base is None:
+                continue
+            bad = [n for n in selected if verdict.get(n, (None,))[0] == 1]
+            if not bad or len(bad) > RECHECK:
+                continue
+            for n in bad:
+                spec = [t for t in base["tests"] if t[0] == n]
+                if spec:
+                    again.append(dict(base, key=f"{commit}#{n}", tests=spec, expensive=[],
+                                      capped=[], prior=None, probe=False, run_all=True))
+        if again:
+            try:
+                found = verify(again)
+                cleared = 0
+                for key, result in found.items():
+                    if "#" not in str(key) or not isinstance(result, dict):
+                        continue
+                    commit, n = key.split("#")
+                    n = int(n)
+                    if result.get(n, (1,))[0] == 0:
+                        verdicts[commit][n] = (0, verdicts[commit][n][1] + result[n][1])
+                        cleared += 1
+                log(f"recheck: {len(again)} failing tests run again alone, {cleared} passed")
+            except Exception as error:  # noqa: BLE001
+                log(f"recheck failed ({error!r})")
 
     out = []
     report = []
