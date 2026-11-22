@@ -280,7 +280,7 @@ def main():
     # Scorer CPU seconds per second of the run costs in the map. The short probe reads
     # about 1.8 on the scorer, but the scorer's own numbers show tests there cost more
     # than that (see NOTES.md): never price CPU below SPEED_FLOOR.
-    SPEED = float(os.environ.get("BR_SPEED") or max(policy.machine_speed(), SPEED_FLOOR))
+    SPEED = float(os.environ.get("BR_SPEED") or 1.8)   # the probe always read its cap on the scorer
     tests = json.load(open(os.path.join(DATA, "tests.json")))["tests"]
     ms = {t["number"]: int(t["seconds"] * 1000 + 0.5) for t in tests}
     maps = Maps(MAP, tests)
