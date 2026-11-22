@@ -388,6 +388,7 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
             "load_lines": load_lines,
             "prior": prior, "tests": tests_spec, "capped": capped, "skip": skipped,
             "giant_cap": giant_cap, "case_order": case_order, "tp_first": tp_first,
+            "tp_proxy": TP_SLICED.get(commit),
             "giant_budget": TP_BUDGET if commit in TP_SLICED else policy.GIANT_BUDGET,
             # The stop rule in the child counts on costly tests being selected; the
             # moderately costly ones are decided apart, so it is not told about them.

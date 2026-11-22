@@ -456,6 +456,8 @@ def run(job, out_fd):
     soft = set(job.get("capped", ()))
     giant = set(job.get("giant_cap", ()))
     tp_first = set(job.get("tp_first", ()))   # run whatever the stop rules say
+    tp_proxy = job.get("tp_proxy")
+    tp_family_failed = [False]
     giant_budget = float(job.get("giant_budget") or 0.0)
     from .policy import SOFT_CAP as soft_cap
     need_state = False
@@ -705,8 +707,15 @@ def run(job, out_fd):
             out.write(json.dumps([number, status, round(cpu, 4)]) + "\n")
             _state["reported"] = _state.get("reported", 0) + 1
             recorded, run_cost = info[number]
-            tracker.record(recorded, run_cost, failed, cpu)
-            if failed:
+            counted = failed
+            if failed and number in tp_first and number != tp_proxy:
+                tp_family_failed[0] = True
+            if failed and number == tp_proxy and not tp_family_failed[0]:
+                # The optimizer slice failed but no executor test did: the caller takes
+                # this as an artefact of the slice, so the commit is not "failing" for it.
+                counted = 0
+            tracker.record(recorded, run_cost, counted, cpu)
+            if counted:
                 fail_scope.add(path if DROP_REST == "file" else (path, cls_name))
 
         result.startTest = lambda test, _s=start: (unittest.TestResult.startTest(result, test), _s(test))[0]
