@@ -59,7 +59,7 @@ SOFT_BLIND = os.environ.get("BR_SOFT_BLIND", "0") == "1"
 SOFT_ALIKE = os.environ.get("BR_SOFT_ALIKE", "1") == "1"
 # Off: reading a patched file no longer selects a moderately costly test by itself;
 # only a failed look-alike does.
-SOFT_FORCE = os.environ.get("BR_SOFT_FORCE", "1") == "1"
+SOFT_FORCE = os.environ.get("BR_SOFT_FORCE", "0") == "1"
 
 
 def load_alike(tests):
