@@ -58,6 +58,12 @@ def run_guarded(jobs, parallel, deadline, preload, log=lambda *a: None, warm=(),
                         __import__(name)
                     took = time.process_time() - before
                     log(f"warm import took {took:.3f}s")
+                    if os.environ.get("BR_SWAP", "0") == "1":
+                        before = time.process_time()
+                        from . import swap
+
+                        swap.build_index(root)
+                        log(f"LEDGER swap-index {time.process_time() - before:.3f} {len(swap.INDEX)}")
                 except Exception:  # noqa: BLE001
                     pass
 

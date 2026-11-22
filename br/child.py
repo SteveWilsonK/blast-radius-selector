@@ -21,6 +21,15 @@ class TestTimeout(BaseException):
     pass
 
 
+# CPU seconds a single test may take; one that takes longer is stopped and taken as
+# passing (0 = no cap).
+CAP = float(os.environ.get("BR_CAP", "0"))
+_capped = [False]
+# After a commit's first failing test, candidates in other test classes ("class") or
+# other test files ("file") are not run and are taken as passing ("" = off).
+DROP_REST = os.environ.get("BR_DROP_REST", "")
+
+
 class OutOfBudget(BaseException):
     pass
 
@@ -51,6 +60,9 @@ class _Result(unittest.TestResult):
             self.broken_classes.add(str(test.id() if hasattr(test, "id") else test))
 
     def addError(self, test, err):
+        if _capped[0] and err and err[0] is TestTimeout:
+            _timeouts[0] -= 1     # stopped at the cap, not hung: counts as a pass
+            return
         self._mark(test)
         self._note(test, err)
 
@@ -163,9 +175,24 @@ def run(job, out_fd):
     patched = [overlay.module_name(rel)[0] for rel in job["files"] if rel.endswith(".py")]
     if any(name in sys.modules for name in patched) or any(
             rel.startswith("tests/") and rel.endswith(".py") for rel in job["files"]):
-        for name in list(sys.modules):
-            if name in ("sqlglot", "tests") or name.startswith(("sqlglot.", "tests.")):
-                del sys.modules[name]
+        swaps = None
+        if job.get("load_lines") is not None and os.environ.get("BR_SWAP", "0") == "1":
+            # A change inside function bodies: give the loaded functions their new
+            # code instead of loading everything again (see swap.py).
+            try:
+                from . import swap
+
+                swaps = swap.plan(root, job["files"], overlay.module_name, job["load_lines"])
+                if swaps is not None:
+                    swap.apply(swaps)
+            except BaseException:  # noqa: BLE001
+                swaps = None
+        if swaps is None:
+            for name in list(sys.modules):
+                if name in ("sqlglot", "tests") or name.startswith(("sqlglot.", "tests.")):
+                    del sys.modules[name]
+        elif os.environ.get("BR_REPORT"):
+            out.write(json.dumps(["swap", len(swaps), 0.0]) + "\n")
     inline_pool.install(job["pickle"])
     overlay.install(root, job["files"])
     if job["files"]:
@@ -250,8 +277,14 @@ def run(job, out_fd):
         by_class[key].append((number, method, limit))
 
     budget = time.process_time() + job.get("budget", 1e9)
+    fail_scope = set()
     for path, cls_name, part in order:
         items = by_class[(path, cls_name, part)]
+        if DROP_REST and fail_scope and not probe and \
+                (path if DROP_REST == "file" else (path, cls_name)) not in fail_scope:
+            for number, _, _ in items:
+                out.write(json.dumps([number, 3 if number in forced else 4, 0.0]) + "\n")
+            continue
         if stop_all:
             for number, _, _ in items:
                 code = 3 if number in forced else stop_code
@@ -359,9 +392,11 @@ def run(job, out_fd):
             if _timeouts[0]:
                 # One test already ran out of time: give the rest far less rope.
                 limit = min(limit, 2.0 + 4.0 * info[number][1])
-            signal.setitimer(signal.ITIMER_PROF, limit)
+            _capped[0] = bool(CAP) and CAP < limit
+            signal.setitimer(signal.ITIMER_PROF, CAP if _capped[0] else limit)
 
         def finish(test, _state=state, _cases=cases, _result=result, union=union, module=module):
+            _capped[0] = False
             if "dialects" in _state:
                 module.Dialects = _state.pop("dialects")
             # Between tests the class fixtures of the next one may run: keep an alarm.
@@ -375,6 +410,8 @@ def run(job, out_fd):
             _state["reported"] = _state.get("reported", 0) + 1
             recorded, run_cost = info[number]
             tracker.record(recorded, run_cost, failed, cpu)
+            if failed:
+                fail_scope.add(path if DROP_REST == "file" else (path, cls_name))
 
         result.startTest = lambda test, _s=start: (unittest.TestResult.startTest(result, test), _s(test))[0]
         result.stopTest = lambda test, _f=finish: (_f(test), unittest.TestResult.stopTest(result, test))[0]

@@ -196,7 +196,12 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
     if prior is not None and policy.Tracker(
             [(t[0], t[3], t[4]) for t in tests_spec], expensive, SPEED, prior).should_stop():
         return None  # selecting it unrun is cheaper than checking
+    # Lines of the patched files that sqlglot runs while it loads: a function that
+    # ran then cannot simply be given new code (see swap.py).
+    load_lines = {path: sorted(maps.self_import.get(path) or ()) for path in files
+                  if path.endswith(".py")}
     return {"key": commit, "root": SOURCE, "files": files, "pickle": analysis.pickle,
+            "load_lines": load_lines,
             "prior": prior, "tests": tests_spec, "expensive": expensive,
             "forced": maps.numbers(analysis.direct), "plans": plans,
             "speed": SPEED, "budget": 40.0, "run_all": RUN_ALL}
@@ -439,6 +444,7 @@ def main():
         offered = len(selected)
         if commit in verdicts:
             verdict = verdicts[commit]
+            swapped = verdict.pop("swap", None)
             forced = maps.numbers(analysis.direct) if analysis is not None else ()
             keep, failed, ran, unknown, expensive = decide(
                 selected, verdict, forced, RULED_OUT.get(commit, 0))
@@ -465,6 +471,8 @@ def main():
             note = (f"child {total:.2f}s (imports {imports:.2f}; rusage u{user} s{system}) "
                     f"ran {len(ran)} ({cpu:.2f}s cpu), failed {len(failed)}, "
                     f"unrun {len(unknown)}, costly {len(expensive)}")
+            if swapped:
+                note += f", swapped {swapped[0]}"
             selected = sorted(keep)
         selected = sorted(set(selected))
         cost, workers = split(selected, ms)
