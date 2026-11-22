@@ -33,7 +33,7 @@ COMMIT_BUDGET = float(os.environ.get("BR_COMMIT_BUDGET", "0"))
 _allowed = [False]
 # After a commit's first failure a test may use at most its recorded seconds times this
 # in CPU before it is abandoned and selected unrun (0 = no such allowance).
-ALLOW = float(os.environ.get("BR_ALLOW", "0"))
+ALLOW = float(os.environ.get("BR_ALLOW", "1.0"))
 # Price of a CPU second when, after a commit's first failure, each remaining candidate is
 # judged on its own (0 = off: the remaining candidates are run or left as one block).
 PICK = float(os.environ.get("BR_PICK", "0"))
