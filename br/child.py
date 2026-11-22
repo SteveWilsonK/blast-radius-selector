@@ -25,6 +25,10 @@ class OutOfBudget(BaseException):
     pass
 
 
+class NeedState(BaseException):
+    """A probe run met a failure: the caller compares state before going on."""
+
+
 class SkipRest(BaseException):
     """The remaining candidates are costly and nothing cheaper failed."""
 
@@ -71,6 +75,8 @@ class _Result(unittest.TestResult):
 
 
 _timeouts = [0]
+# Run cost left (seconds) above which a failed probe hands over to the state comparison.
+PROBE_REST = float(os.environ.get("BR_PROBE_REST", "0.3"))
 
 
 def _alarm(signum, frame):
@@ -231,6 +237,8 @@ def run(job, out_fd):
                       job.get("speed", 1.0), job.get("prior"))
     stop_all = False
     stop_code = 3
+    probe = bool(job.get("probe"))
+    need_state = False
     forced = set(job.get("forced", ()))
     import_cpu = 0.0
     for number, test_id, limit, _, _, _, part in job["tests"]:
@@ -326,11 +334,17 @@ def run(job, out_fd):
         state = {"i": 0, "t0": 0.0}
 
         def start(test, _state=state, _cases=cases, module=module):
-            if not job.get("run_all") and (time.process_time() > budget or tracker.should_stop()):
+            if probe and tracker.failed and tracker.todo_cpu > PROBE_REST:
+                raise NeedState()
+            if not job.get("run_all") and time.process_time() > budget:
                 raise OutOfBudget()
             upcoming = _cases[_state["i"]][0]
+            # Enough clean runs: the rest is taken as passing, however many are left
+            # (before the cost rule, which would select a large rest unrun).
             if not job.get("run_all") and upcoming not in forced and tracker.skip_costly(info[upcoming][1]):
                 raise SkipRest()
+            if not job.get("run_all") and tracker.should_stop():
+                raise OutOfBudget()
             if _timeouts[0] >= 3:
                 raise OutOfBudget()  # the patch hangs tests: stop paying for it
             _state["t0"] = time.process_time()
@@ -374,6 +388,10 @@ def run(job, out_fd):
         except OutOfBudget:
             unrun = 3  # not run at all: the caller decides
             stop_all = True
+        except NeedState:
+            unrun = 3
+            stop_all = True
+            need_state = True
         except SkipRest:
             unrun = 4  # not run, taken as passing
             stop_all = True
@@ -383,6 +401,8 @@ def run(job, out_fd):
         signal.setitimer(signal.ITIMER_PROF, 0)
         for number, case, _ in cases[state.get("reported", 0):]:
             out.write(json.dumps([number, unrun, 0.0]) + "\n")
+    if need_state:
+        out.write(json.dumps(["state?", 1, 0.0]) + "\n")
     out.write(json.dumps(["cpu", round(time.process_time(), 3), round(import_cpu, 3)]) + "\n")
     out.write("done\n")
     out.flush()

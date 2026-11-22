@@ -32,6 +32,9 @@ WALL_PER_COMMIT = float(os.environ.get("BR_WALL", "4.0"))
 RUN_ALL = os.environ.get("BR_RUN_ALL") == "1"   # development: never stop early on cost
 STATE = os.environ.get("BR_STATE", "1") == "1"   # compare loaded state for class-level changes
 STATE_FILE = os.path.join(os.path.dirname(MAP), "state.bin")
+# Compare state only after a cheap candidate has failed: when the first few pass, the
+# commit is taken as clean without the comparison.
+LAZY_STATE = os.environ.get("BR_LAZY_STATE", "1") == "1"
 STATE_MIN_TESTS = 25
 STATE_MIN_COST = 1.0
 EXP_DROP = set(filter(None, os.environ.get("BR_EXP_DROP", "test_execute_tpcds").split(",")))
@@ -199,7 +202,35 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
             "speed": SPEED, "budget": 40.0, "run_all": RUN_ALL}
 
 
-def refine(plans, texts, analyzer, maps, cost_of, seconds, started, count):
+def state_unstable():
+    """Modules whose loaded state differs from run to run, or None if unknown."""
+    from . import state as state_module
+
+    try:
+        if os.path.exists(STATE_FILE + ".meta"):
+            with open(STATE_FILE + ".meta") as handle:
+                return set(json.load(handle).get("unstable_modules") or ())
+        return set(state_module.load(STATE_FILE).get("unstable_modules") or ())
+    except Exception as error:  # noqa: BLE001
+        log(f"state file unreadable ({error!r})")
+        return None
+
+
+def state_eligible(selected, analysis, unstable, cost_of, seconds):
+    """Is this a commit the state comparison is meant for?"""
+    if analysis is None or analysis.everything or not analysis.body_units:
+        return False
+    files = dict(analysis.py_changed)
+    files.update(analysis.data_changed)
+    if any(text is None for text in files.values()):
+        return False
+    if any(candidates.module_of(path) in unstable for path in files if path.endswith(".py")):
+        return False
+    weight = sum(cost_of.get(n, seconds[n]) for n in selected)
+    return not (len(selected) < STATE_MIN_TESTS and weight < STATE_MIN_COST)
+
+
+def refine(plans, texts, analyzer, maps, cost_of, seconds, started, count, only=None):
     """For commits that change class-level values and leave many candidates: load the
     patched code once, see which loaded values really differ from the pinned commit,
     and keep only the tests recorded reading one of those (see state.py)."""
@@ -220,6 +251,8 @@ def refine(plans, texts, analyzer, maps, cost_of, seconds, started, count):
     jobs = []
     where = {}
     for index, (commit, selected, analysis) in enumerate(plans):
+        if only is not None and commit not in only:
+            continue
         if analysis is None or analysis.everything or not analysis.body_units:
             continue
         files = dict(analysis.py_changed)
@@ -311,27 +344,49 @@ def main():
 
     log(f"LEDGER main-analysis {time.process_time():.3f}")
     cost_of = maps.cost
-    if STATE and os.path.exists(STATE_FILE) and maps.tracked and not NO_EXEC:
+    state_on = STATE and os.path.exists(STATE_FILE) and maps.tracked and not NO_EXEC
+    probe = set()
+    if state_on and LAZY_STATE:
+        unstable = state_unstable()
+        if unstable is not None:
+            probe = {commit for commit, selected, analysis in plans
+                     if state_eligible(selected, analysis, unstable, cost_of, seconds)}
+    elif state_on:
         refine(plans, texts, analyzer, maps, cost_of, seconds, started, len(names))
 
-    # Run candidates against the patched code; keep the ones that fail.
-    jobs = []
-    for commit, selected, analysis in plans:
-        if analysis is None or analysis.everything or not selected or NO_EXEC:
-            continue
-        files = dict(analysis.py_changed)
-        files.update(analysis.data_changed)
-        if any(text is None for text in files.values()):
-            continue  # removed or unreadable files: stay with the blind selection
-        try:
-            job = plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files)
-        except Exception as error:
-            log(f"{commit}: planning failed ({error!r}); selecting unrun")
-            job = None
-        if job is not None:
-            jobs.append(job)
-    verdicts = {}
-    if jobs:
+    def build(only=None, probing=()):
+        """Jobs that run candidates against the patched code."""
+        jobs = []
+        for commit, selected, analysis in plans:
+            if only is not None and commit not in only:
+                continue
+            if analysis is None or analysis.everything or not selected or NO_EXEC:
+                continue
+            files = dict(analysis.py_changed)
+            files.update(analysis.data_changed)
+            if any(text is None for text in files.values()):
+                continue  # removed or unreadable files: stay with the blind selection
+            try:
+                job = plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files)
+            except Exception as error:
+                log(f"{commit}: planning failed ({error!r}); selecting unrun")
+                job = None
+            if job is not None:
+                if commit in probing:
+                    job["probe"] = True
+                jobs.append(job)
+        return jobs
+
+    deadline = started + max(30.0, WALL_PER_COMMIT * len(names) - 8.0)
+    # The scorer's two cores are two threads of one core: two children at once
+    # slow each other down and every CPU second is charged. So one child at a
+    # time, and a second only if the wall-clock limit starts to press.
+    hurry = started + 0.45 * (deadline - started)
+
+    def width():
+        return 1 if time.time() < hurry else 2
+
+    def verify(jobs):
         from .execute import run_guarded
 
         preload = ["unittest", "unittest.mock"]
@@ -339,26 +394,39 @@ def main():
         if any(t[1].startswith(heavy) for job in jobs for t in job["tests"]):
             preload += ["duckdb"] if os.environ.get("BR_LAZY", "1") == "1" else \
                 ["duckdb", "numpy", "pandas", "pandas.testing"]
-        deadline = started + max(30.0, WALL_PER_COMMIT * len(names) - 8.0)
-        # The scorer's two cores are two threads of one core: two children at once
-        # slow each other down and every CPU second is charged. So one child at a
-        # time, and a second only if the wall-clock limit starts to press.
-        hurry = started + 0.45 * (deadline - started)
-
-        def width():
-            return 1 if time.time() < hurry else 2
-
         try:
-            verdicts = run_guarded(jobs, width, deadline, preload, log, warm=WARM,
-                                   adapt=policy.ADAPT and not os.environ.get("BR_SPEED"))
-            if len(verdicts) <= 1 and len(preload) > 2:
+            found = run_guarded(jobs, width, deadline, preload, log, warm=WARM,
+                                adapt=policy.ADAPT and not os.environ.get("BR_SPEED"))
+            if len(found) <= 1 and len(preload) > 2:
                 # Nothing came back: a shared library may not load here. Let each
                 # child load what it needs on its own instead.
                 log("helper returned nothing; retrying without preloading")
-                verdicts = run_guarded(jobs, width, deadline, preload[:2], log)
+                found = run_guarded(jobs, width, deadline, preload[:2], log)
         except Exception as error:
             log(f"verification failed ({error!r}); selecting unrun")
-            verdicts = {}
+            found = {}
+        return found
+
+    # Run candidates against the patched code; keep the ones that fail.
+    jobs = build(probing=probe)
+    verdicts = verify(jobs) if jobs else {}
+    need = {commit for commit in probe
+            if isinstance(verdicts.get(commit), dict) and verdicts[commit].pop("state?", None)}
+    if need:
+        # A cheap candidate failed on a class-level change: now the comparison pays.
+        log(f"state comparison wanted for {sorted(need)}")
+        for commit in need:
+            verdicts.pop(commit, None)
+        try:
+            refine(plans, texts, analyzer, maps, cost_of, seconds, started, len(names), only=need)
+            again = build(only=need)
+            if again:
+                more = verify(again)
+                stats = more.pop("_stats", {})
+                verdicts.setdefault("_stats", {}).update(stats)
+                verdicts.update(more)
+        except Exception as error:  # noqa: BLE001
+            log(f"second pass failed ({error!r}); selecting unrun")
 
     out = []
     report = []
