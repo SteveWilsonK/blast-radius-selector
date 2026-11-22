@@ -159,6 +159,8 @@ def _partial_purge(job):
     the test modules holding something of theirs). None: nothing done, purge all."""
     import types
 
+    from . import overlay
+
     mods = []
     for rel in job["files"]:
         if not rel.endswith(".py"):
