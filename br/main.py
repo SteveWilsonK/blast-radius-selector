@@ -39,7 +39,7 @@ LAZY_STATE = os.environ.get("BR_LAZY_STATE", "1") == "1"
 ONE_HELPER = os.environ.get("BR_ONE_HELPER", "1") == "1"
 STATE_MIN_TESTS = 25
 STATE_MIN_COST = 1.0
-EXP_DROP = set(filter(None, os.environ.get("BR_EXP_DROP", "test_execute_tpcds").split(",")))
+EXP_DROP = set(filter(None, os.environ.get("BR_EXP_DROP", "").split(",")))
 SLICE = os.environ.get("BR_SLICE", "0") == "1"  # run tests by statement where the map allows
 
 
