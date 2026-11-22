@@ -56,11 +56,11 @@ JOBS = {}        # commit -> the job its candidates last ran as
 TRACK_HARD_ONLY = os.environ.get("BR_TRACK_HARD_ONLY", "0") == "1"
 TRACK_NO_DROPPED = os.environ.get("BR_TRACK_NO_DROPPED", "0") == "1"
 # On: costly tests are planned as before the never-run rule and only left out when run.
-SOFT_SKIP = os.environ.get("BR_SOFT_SKIP", "0") == "1"
+SOFT_SKIP = os.environ.get("BR_SOFT_SKIP", "1") == "1"
 # With SOFT_SKIP: a slice of one of the two giant tests is not run either.
 # 1: such a slice is taken out of the plan; 2: it stays in the plan (so the stop rule
 # still counts it) and is only left out by the child, then decided like a never-run giant.
-SKIP_GIANT = int(os.environ.get("BR_SKIP_GIANT", "0"))
+SKIP_GIANT = int(os.environ.get("BR_SKIP_GIANT", "2"))
 GIANT_SKIPPED = set()
 # Commits with at most this many failing tests get each of them run again alone (0 = off).
 RECHECK = int(os.environ.get("BR_RECHECK", "0"))
