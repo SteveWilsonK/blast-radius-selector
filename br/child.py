@@ -24,6 +24,10 @@ class TestTimeout(BaseException):
 # CPU seconds a single test may take; one that takes longer is stopped and taken as
 # passing (0 = no cap).
 CAP = float(os.environ.get("BR_CAP", "0"))
+# On: when function code cannot be swapped, reload only the patched modules and the
+# modules that import them (fewer than PARTIAL_MAX), not all of sqlglot.
+PARTIAL_RELOAD = os.environ.get("BR_PARTIAL", "1") == "1"
+PARTIAL_MAX = int(os.environ.get("BR_PARTIAL_MAX", "20"))
 _capped = [False]
 _cap_hit = [False]
 VALUE_ORDER = os.environ.get("BR_VALUE_ORDER", "1") == "1"
@@ -116,6 +120,90 @@ class _Result(unittest.TestResult):
 _timeouts = [0]
 # Run cost left (seconds) above which a failed probe hands over to the state comparison.
 PROBE_REST = float(os.environ.get("BR_PROBE_REST", "0.3"))
+
+
+_reimport = [None]
+_GRAPH = []
+
+
+def _importers(mods):
+    """The modules that import any of mods while they load, directly or not (from the
+    import graph of the pinned source built with the image), mods included."""
+    if not _GRAPH:
+        reverse = {}
+        try:
+            path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                "maps", "modgraph.json")
+            with open(path) as handle:
+                for name, deps in json.load(handle).items():
+                    for dep in deps:
+                        reverse.setdefault(dep, set()).add(name)
+        except Exception:  # noqa: BLE001
+            reverse = None
+        _GRAPH.append(reverse)
+    reverse = _GRAPH[0]
+    if reverse is None:
+        return None
+    seen = set(mods)
+    todo = list(mods)
+    while todo:
+        for user in reverse.get(todo.pop(), ()):
+            if user not in seen:
+                seen.add(user)
+                todo.append(user)
+    return seen
+
+
+def _partial_purge(job):
+    """Drop only the patched sqlglot modules and their importers from sys.modules (and
+    the test modules holding something of theirs). None: nothing done, purge all."""
+    import types
+
+    from . import overlay
+
+    mods = []
+    for rel in job["files"]:
+        if not rel.endswith(".py"):
+            continue
+        if not rel.startswith("sqlglot/"):
+            return None
+        mods.append(overlay.module_name(rel)[0])
+    if not mods:
+        return None
+    targets = _importers(mods)
+    if targets is None or len(targets) >= PARTIAL_MAX:
+        return None
+    stale_tests = []
+    cached = []
+    for name, module in list(sys.modules.items()):
+        if module is None or name in targets:
+            continue
+        in_tests = name == "tests" or name.startswith("tests.")
+        if not (in_tests or name == "sqlglot" or name.startswith("sqlglot.")):
+            continue
+        for key, value in list(vars(module).items()):
+            try:
+                owner = value.__name__ if isinstance(value, types.ModuleType) else \
+                    getattr(value, "__module__", None)
+            except Exception:  # noqa: BLE001
+                continue
+            if owner not in targets:
+                continue
+            if isinstance(value, types.ModuleType) and owner.rsplit(".", 1)[0] == name:
+                continue          # the package's own submodule attribute: re-import resets it
+            if in_tests:
+                stale_tests.append(name)
+                break
+            if name == "sqlglot.dialects":
+                cached.append(key)  # filled lazily by the package's __getattr__
+                continue
+            return None           # another sqlglot module holds one of their objects
+    for key in cached:
+        sys.modules["sqlglot.dialects"].__dict__.pop(key, None)
+    for name in list(targets) + stale_tests:
+        sys.modules.pop(name, None)
+    _reimport[0] = sorted(n for n in targets if n not in sys.modules)
+    return targets
 
 
 def _alarm(signum, frame):
@@ -215,13 +303,37 @@ def run(job, out_fd):
             except BaseException:  # noqa: BLE001
                 swaps = None
         if swaps is None:
-            for name in list(sys.modules):
-                if name in ("sqlglot", "tests") or name.startswith(("sqlglot.", "tests.")):
-                    del sys.modules[name]
+            partial = _partial_purge(job) if PARTIAL_RELOAD else None
+            if partial is None:
+                for name in list(sys.modules):
+                    if name in ("sqlglot", "tests") or name.startswith(("sqlglot.", "tests.")):
+                        del sys.modules[name]
         elif os.environ.get("BR_REPORT"):
             out.write(json.dumps(["swap", len(swaps), 0.0]) + "\n")
     inline_pool.install(job["pickle"], lazy=bool(job.get("giant_cap")))
     overlay.install(root, job["files"])
+    if _reimport[0]:
+        # The patched modules and their importers load again now, through the overlay,
+        # so every registry they fill holds the new classes before any test runs.
+        from importlib import import_module as _load_again
+
+        names, _reimport[0] = _reimport[0], None
+        try:
+            # Registries keep classes by name: drop those of the reloaded modules first,
+            # so nothing old is found if a module no longer defines them.
+            registry = getattr(sys.modules.get("sqlglot.dialects.dialect"), "Dialect", None)
+            classes = getattr(registry, "_classes", None)
+            if isinstance(classes, dict):
+                for key, value in list(classes.items()):
+                    if getattr(value, "__module__", None) in names:
+                        del classes[key]
+            for name in names:
+                _load_again(name)
+        except BaseException:  # noqa: BLE001
+            # A patched module that cannot load must fail exactly as on a fresh start.
+            for name in list(sys.modules):
+                if name in ("sqlglot", "tests") or name.startswith(("sqlglot.", "tests.")):
+                    del sys.modules[name]
     if job["files"]:
         # Tests that start another Python must meet the same patched files there.
         try:
