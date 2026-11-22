@@ -70,6 +70,7 @@ GIANT_PARTIAL = os.environ.get("BR_GIANT_PARTIAL", "drop")
 # executor test failing) selects test_execute_tpcds; otherwise it is left out.
 TP_RULE = os.environ.get("BR_TP_RULE", "1") == "1"
 TP_BUDGET = float(os.environ.get("BR_TP_BUDGET", "0.6"))
+TP_FAMILY_RULE = os.environ.get("BR_TP_FAMILY", "0") == "1"   # another executor test failing also selects it
 TP_GIANT = "tests/test_executor.py::TestExecutor::test_execute_tpcds"
 TP_PROXY = "tests/test_optimizer.py::TestOptimizer::test_tpcds"
 TP_FAMILY = "tests/test_executor.py::TestExecutor::"
@@ -775,7 +776,7 @@ def main():
                 proxy = TP_SLICED.get(commit)
                 family_failed = any(id_of[n].startswith(TP_FAMILY) for n in failed)
                 proxy_failed = proxy is not None and verdict.get(proxy, (None,))[0] == 1
-                if family_failed or proxy_failed:
+                if proxy_failed or (TP_FAMILY_RULE and family_failed):
                     tp_keep = {n for n in selected if id_of[n] == TP_GIANT}
             if EXP_DROP:
                 # Experiment builds only: never select these never-run tests (unless
