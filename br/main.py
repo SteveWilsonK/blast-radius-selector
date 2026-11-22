@@ -53,7 +53,7 @@ RULED_OUT = {}   # commit -> candidates dropped because nothing they read change
 ALIKE = {}       # costly test number -> numbers of the cheap tests most like it
 SOFT = set()     # costly tests decided by their look-alikes alone
 # On: a giant fixture-walking test runs its covering cases under a CPU allowance.
-GIANT_SLICE = os.environ.get("BR_GIANT_SLICE", "0") == "1"
+GIANT_SLICE = os.environ.get("BR_GIANT_SLICE", "1") == "1"
 # What a giant test stopped at its allowance without a failure counts as: "drop" (passing)
 # or "rule" (never run: the share rule and the insurance decide).
 GIANT_PARTIAL = os.environ.get("BR_GIANT_PARTIAL", "drop")
