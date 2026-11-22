@@ -54,6 +54,7 @@ ALIKE = {}       # costly test number -> numbers of the cheap tests most like it
 SOFT = set()     # costly tests decided by their look-alikes alone
 JOBS = {}        # commit -> the job its candidates last ran as
 TRACK_HARD_ONLY = os.environ.get("BR_TRACK_HARD_ONLY", "0") == "1"
+TRACK_NO_DROPPED = os.environ.get("BR_TRACK_NO_DROPPED", "1") == "1"
 # On: costly tests are planned as before the never-run rule and only left out when run.
 SOFT_SKIP = os.environ.get("BR_SOFT_SKIP", "0") == "1"
 # Commits with at most this many failing tests get each of them run again alone (0 = off).
@@ -142,6 +143,18 @@ def insure(keep, dropped, ms, risk):
         if best is None or cost < best[0] - 1e-9:
             best = (cost, extra)
     return set(keep) | set(best[1])
+
+
+def told(expensive, id_of, direct):
+    """The never-run tests the child's stop rule should count on being selected."""
+    out = expensive
+    if TRACK_HARD_ONLY:
+        out = [e for e in out if e[0] not in SOFT]
+    if TRACK_NO_DROPPED and EXP_DROP:
+        # A test this build never selects (unless it reads a patched file) must not make
+        # the rest look cheap to select unrun.
+        out = [e for e in out if e[0] in direct or id_of[e[0]].rsplit("::", 1)[1] not in EXP_DROP]
+    return out
 
 
 def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
@@ -293,7 +306,7 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
             "prior": prior, "tests": tests_spec, "capped": capped, "skip": skipped,
             # The stop rule in the child counts on costly tests being selected; the
             # moderately costly ones are decided apart, so it is not told about them.
-            "expensive": [e for e in expensive if e[0] not in SOFT] if TRACK_HARD_ONLY else expensive,
+            "expensive": told(expensive, id_of, set(maps.numbers(analysis.direct))),
             "forced": maps.numbers(analysis.direct), "plans": plans,
             "speed": SPEED, "budget": 40.0, "run_all": RUN_ALL}
 
