@@ -353,6 +353,15 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
         specs.sort(key=lambda s: (s[0] not in first, s[4]))
     else:
         specs.sort(key=lambda s: s[4])
+    tp_first = []
+    if commit in TP_SLICED:
+        # The executor tests that are candidates run first, then the optimizer's TPC-DS
+        # test, all of them whatever the stop rules say: test_execute_tpcds is selected
+        # only when both kinds fail.
+        family = [s for s in specs if s[1].startswith(TP_FAMILY)]
+        tp_first = [s[0] for s in family] + [TP_SLICED[commit]]
+        specs.sort(key=lambda s: (0 if s[1].startswith(TP_FAMILY) else
+                                  1 if s[0] == TP_SLICED[commit] else 2, s[4]))
     tests_spec = [tuple(s[:7]) for s in specs]
     if os.environ.get("BR_DEBUG") == commit:
         log(f"  plan: {len(specs)} to run, est {sum(s[4] for s in specs):.2f}s "
@@ -378,7 +387,7 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
     return {"key": commit, "root": SOURCE, "files": files, "pickle": analysis.pickle,
             "load_lines": load_lines,
             "prior": prior, "tests": tests_spec, "capped": capped, "skip": skipped,
-            "giant_cap": giant_cap, "case_order": case_order,
+            "giant_cap": giant_cap, "case_order": case_order, "tp_first": tp_first,
             "giant_budget": TP_BUDGET if commit in TP_SLICED else policy.GIANT_BUDGET,
             # The stop rule in the child counts on costly tests being selected; the
             # moderately costly ones are decided apart, so it is not told about them.
@@ -776,7 +785,7 @@ def main():
                 proxy = TP_SLICED.get(commit)
                 family_failed = any(id_of[n].startswith(TP_FAMILY) for n in failed)
                 proxy_failed = proxy is not None and verdict.get(proxy, (None,))[0] == 1
-                if proxy_failed or (TP_FAMILY_RULE and family_failed):
+                if proxy_failed and family_failed:
                     tp_keep = {n for n in selected if id_of[n] == TP_GIANT}
             if EXP_DROP:
                 # Experiment builds only: never select these never-run tests (unless

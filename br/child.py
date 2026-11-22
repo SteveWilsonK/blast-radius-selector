@@ -312,6 +312,7 @@ def run(job, out_fd):
     unrun_here = set()
     soft = set(job.get("capped", ()))
     giant = set(job.get("giant_cap", ()))
+    tp_first = set(job.get("tp_first", ()))   # run whatever the stop rules say
     giant_budget = float(job.get("giant_budget") or 0.0)
     from .policy import SOFT_CAP as soft_cap
     need_state = False
@@ -342,8 +343,9 @@ def run(job, out_fd):
 
             rest = order[position:]
             for key in rest:
-                by_class[key].sort(key=lambda item: -worth(item[0]))
-            rest.sort(key=lambda key: -max(worth(item[0]) for item in by_class[key]))
+                by_class[key].sort(key=lambda item: (item[0] not in tp_first, -worth(item[0])))
+            rest.sort(key=lambda key: (not any(item[0] in tp_first for item in by_class[key]),
+                                       -max(worth(item[0]) for item in by_class[key])))
             order[position:] = rest
         path, cls_name, part = order[position]
         position += 1
@@ -460,46 +462,47 @@ def run(job, out_fd):
         state = {"i": 0, "t0": 0.0}
 
         def start(test, _state=state, _cases=cases, module=module):
-            if probe and tracker.failed and tracker.todo_cpu > PROBE_REST:
-                raise NeedState()
-            if not job.get("run_all") and time.process_time() > budget:
-                raise OutOfBudget()
-            if (STAKES_K > 0 and not job.get("run_all") and (tracker.failed or not STAKES_AFTER)
-                    and time.process_time() - budget_base[0] > STAKES_K * tracker.stakes()):
-                # One CPU second costs one score second: stop once the CPU spent here
-                # passes k times what verifying the rest could still save.
-                if tracker.failed:
+            if _cases[_state["i"]][0] not in tp_first:
+                if probe and tracker.failed and tracker.todo_cpu > PROBE_REST:
+                    raise NeedState()
+                if not job.get("run_all") and time.process_time() > budget:
                     raise OutOfBudget()
-                raise SkipRest()
-            if (COMMIT_BUDGET > 0 and not job.get("run_all") and not (STAKES_AFTER and tracker.failed)
-                    and time.process_time() - budget_base[0] > COMMIT_BUDGET):
-                # This commit has had its CPU: what is left is selected if a failure
-                # was seen and taken as passing if none was.
-                if tracker.failed:
+                if (STAKES_K > 0 and not job.get("run_all") and (tracker.failed or not STAKES_AFTER)
+                        and time.process_time() - budget_base[0] > STAKES_K * tracker.stakes()):
+                    # One CPU second costs one score second: stop once the CPU spent here
+                    # passes k times what verifying the rest could still save.
+                    if tracker.failed:
+                        raise OutOfBudget()
+                    raise SkipRest()
+                if (COMMIT_BUDGET > 0 and not job.get("run_all") and not (STAKES_AFTER and tracker.failed)
+                        and time.process_time() - budget_base[0] > COMMIT_BUDGET):
+                    # This commit has had its CPU: what is left is selected if a failure
+                    # was seen and taken as passing if none was.
+                    if tracker.failed:
+                        raise OutOfBudget()
+                    raise SkipRest()
+                upcoming = _cases[_state["i"]][0]
+                # Enough clean runs: the rest is taken as passing, however many are left
+                # (before the cost rule, which would select a large rest unrun).
+                if not job.get("run_all") and upcoming not in forced and tracker.skip_costly(info[upcoming][1]):
+                    raise SkipRest()
+                if PICK > 0 and tracker.failed and not job.get("run_all"):
+                    # The commit already has a failing test, so whatever is left unrun gets
+                    # selected. Each remaining candidate is judged on its own: run it only
+                    # if the scheduled seconds it would cost unrun outweigh the CPU of
+                    # running it; otherwise leave it unrun (and selected).
+                    recorded, run_cost = info[upcoming]
+                    share = (tracker.failed + 0.2) / (tracker.ran + 1.0)
+                    if recorded * (1.0 - share) <= run_cost * PICK:
+                        unrun_here.add(upcoming)
+                        test.setUp = test.tearDown = _nothing
+                        setattr(test, test._testMethodName, _nothing)
+                        tracker.todo_sim -= recorded
+                        tracker.todo_cpu -= run_cost
+                        _state["t0"] = time.process_time()
+                        return
+                elif not job.get("run_all") and tracker.should_stop():
                     raise OutOfBudget()
-                raise SkipRest()
-            upcoming = _cases[_state["i"]][0]
-            # Enough clean runs: the rest is taken as passing, however many are left
-            # (before the cost rule, which would select a large rest unrun).
-            if not job.get("run_all") and upcoming not in forced and tracker.skip_costly(info[upcoming][1]):
-                raise SkipRest()
-            if PICK > 0 and tracker.failed and not job.get("run_all"):
-                # The commit already has a failing test, so whatever is left unrun gets
-                # selected. Each remaining candidate is judged on its own: run it only
-                # if the scheduled seconds it would cost unrun outweigh the CPU of
-                # running it; otherwise leave it unrun (and selected).
-                recorded, run_cost = info[upcoming]
-                share = (tracker.failed + 0.2) / (tracker.ran + 1.0)
-                if recorded * (1.0 - share) <= run_cost * PICK:
-                    unrun_here.add(upcoming)
-                    test.setUp = test.tearDown = _nothing
-                    setattr(test, test._testMethodName, _nothing)
-                    tracker.todo_sim -= recorded
-                    tracker.todo_cpu -= run_cost
-                    _state["t0"] = time.process_time()
-                    return
-            elif not job.get("run_all") and tracker.should_stop():
-                raise OutOfBudget()
             if _timeouts[0] >= 3:
                 raise OutOfBudget()  # the patch hangs tests: stop paying for it
             _state["t0"] = time.process_time()
