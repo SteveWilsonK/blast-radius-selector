@@ -55,6 +55,10 @@ SOFT = set()     # costly tests decided by their look-alikes alone
 JOBS = {}        # commit -> the job its candidates last ran as
 # Commits with at most this many failing tests get each of them run again alone (0 = off).
 RECHECK = int(os.environ.get("BR_RECHECK", "0"))
+# On: tests that failed in this batch are run once on the unpatched code; the ones that
+# fail there too are never selected. Only tests up to BASELINE_MAX seconds of run cost.
+BASELINE = os.environ.get("BR_BASELINE", "0") == "1"
+BASELINE_MAX = float(os.environ.get("BR_BASELINE_MAX", "0.3"))
 UNRUNNABLE = {}  # commit -> its moderately costly candidates, when none of its candidates ran
 # On: such candidates are left out (no look-alike could fail), unless they read a patched file.
 SOFT_BLIND = os.environ.get("BR_SOFT_BLIND", "0") == "1"
@@ -522,6 +526,41 @@ def main():
                 verdicts.update(more)
         except Exception as error:  # noqa: BLE001
             log(f"second pass failed ({error!r}); selecting unrun")
+
+    if BASELINE:
+        # Every test that failed somewhere in this batch runs once more against the
+        # unpatched code, all in one child. One that fails there too fails here
+        # whatever the patch is, so its failure says nothing and it is not selected.
+        seen = {}
+        for commit, selected, analysis in plans:
+            verdict = verdicts.get(commit)
+            base = JOBS.get(commit)
+            if not isinstance(verdict, dict) or base is None:
+                continue
+            for n in selected:
+                if n in seen or verdict.get(n, (None,))[0] != 1:
+                    continue
+                spec = next((t for t in base["tests"] if t[0] == n), None)
+                cost = cost_of.get(n, seconds[n])
+                if spec is not None and cost <= BASELINE_MAX:
+                    seen[n] = (spec[0], spec[1], spec[2], spec[3], cost, None, 0)
+        if seen:
+            try:
+                job = {"key": "#base", "root": SOURCE, "files": {}, "pickle": False, "prior": None,
+                       "tests": sorted(seen.values(), key=lambda t: t[4]), "expensive": [],
+                       "forced": [], "plans": {}, "speed": SPEED, "budget": 40.0, "run_all": True}
+                found = verify([job]).get("#base") or {}
+                broken = {n for n in seen if found.get(n, (0,))[0] == 1}
+                log(f"baseline: {len(seen)} failing tests run unpatched, {len(broken)} fail there too"
+                    + (": " + ", ".join(sorted(id_of[n] for n in broken))[:300] if broken else ""))
+                for commit, selected, analysis in plans:
+                    verdict = verdicts.get(commit)
+                    if isinstance(verdict, dict):
+                        for n in broken:
+                            if verdict.get(n, (None,))[0] == 1:
+                                verdict[n] = (0, verdict[n][1])
+            except Exception as error:  # noqa: BLE001
+                log(f"baseline check failed ({error!r})")
 
     if RECHECK:
         # A commit with only a few failing tests: run each of them once more, alone in
