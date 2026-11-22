@@ -30,7 +30,7 @@ SPEED_FLOOR = float(os.environ.get("BR_SPEED_FLOOR", "1.0"))
 # The scorer allows about 4.5 s of wall time per commit (3 min for 40, 4.5 min for 60).
 WALL_PER_COMMIT = float(os.environ.get("BR_WALL", "4.0"))
 RUN_ALL = os.environ.get("BR_RUN_ALL") == "1"   # development: never stop early on cost
-STATE = os.environ.get("BR_STATE", "1") == "1"   # compare loaded state for class-level changes
+STATE = os.environ.get("BR_STATE", "0") == "1"   # compare loaded state for class-level changes
 STATE_FILE = os.path.join(os.path.dirname(MAP), "state.bin")
 STATE_MIN_TESTS = 25
 STATE_MIN_COST = 1.0
