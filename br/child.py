@@ -27,7 +27,7 @@ CAP = float(os.environ.get("BR_CAP", "0"))
 # On: when function code cannot be swapped, reload only the patched modules and the
 # modules that import them (fewer than PARTIAL_MAX), not all of sqlglot.
 PARTIAL_RELOAD = os.environ.get("BR_PARTIAL", "1") == "1"
-PARTIAL_MAX = int(os.environ.get("BR_PARTIAL_MAX", "20"))
+PARTIAL_MAX = int(os.environ.get("BR_PARTIAL_MAX", "40"))
 # On: the per-test cap holds only until the commit's first failure.
 CAP_BEFORE = os.environ.get("BR_CAP_BEFORE", "0") == "1"
 _capped = [False]
@@ -37,7 +37,7 @@ _ignore = [False]
 DIAG_BODIES = os.environ.get("BR_DIAG", "") == "bodies"
 # CPU seconds one commit's child may spend before it stops running tests (0 = no limit).
 COMMIT_BUDGET = float(os.environ.get("BR_COMMIT_BUDGET", "0.15"))
-STAKES_K = float(os.environ.get("BR_STAKES_K", "0.4"))
+STAKES_K = float(os.environ.get("BR_STAKES_K", "0.36"))
 CHEAP_FAIL = os.environ.get("BR_CHEAP_FAIL", "1") == "1"
 STATE_STAKES = float(os.environ.get("BR_STATE_STAKES", "0"))
 # On: the flat budget holds until the first failure, k x stakes after it.
@@ -456,6 +456,8 @@ def run(job, out_fd):
     soft = set(job.get("capped", ()))
     giant = set(job.get("giant_cap", ()))
     tp_first = set(job.get("tp_first", ()))   # run whatever the stop rules say
+    tp_proxy = job.get("tp_proxy")
+    tp_family_failed = [False]
     giant_budget = float(job.get("giant_budget") or 0.0)
     from .policy import SOFT_CAP as soft_cap
     need_state = False
@@ -705,8 +707,15 @@ def run(job, out_fd):
             out.write(json.dumps([number, status, round(cpu, 4)]) + "\n")
             _state["reported"] = _state.get("reported", 0) + 1
             recorded, run_cost = info[number]
-            tracker.record(recorded, run_cost, failed, cpu)
-            if failed:
+            counted = failed
+            if failed and number in tp_first and number != tp_proxy:
+                tp_family_failed[0] = True
+            if failed and number == tp_proxy and not tp_family_failed[0]:
+                # The optimizer slice failed but no executor test did: the caller takes
+                # this as an artefact of the slice, so the commit is not "failing" for it.
+                counted = 0
+            tracker.record(recorded, run_cost, counted, cpu)
+            if counted:
                 fail_scope.add(path if DROP_REST == "file" else (path, cls_name))
 
         result.startTest = lambda test, _s=start: (unittest.TestResult.startTest(result, test), _s(test))[0]
