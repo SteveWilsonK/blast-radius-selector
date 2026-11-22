@@ -13,7 +13,7 @@ NEVER_RUN = float(os.environ.get("BR_NEVER_RUN", "0.5"))
 GIANT = 5.0
 # CPU seconds a moderately costly test is given before it is stopped and taken as passing
 # (0 = such tests are not run at all).
-SOFT_CAP = float(os.environ.get("BR_SOFT_CAP", "0"))
+SOFT_CAP = float(os.environ.get("BR_SOFT_CAP", "0.3"))
 # Fixture-walking tests run at most this many of the cases that meet the change (0 = all).
 CASE_CAP = int(os.environ.get("BR_CASE_CAP", "0"))
 # Learn the price of a CPU second from the tests as they run (off until checked).
