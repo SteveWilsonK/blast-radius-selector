@@ -52,6 +52,9 @@ RULED_OUT = {}   # commit -> candidates dropped because nothing they read change
 
 ALIKE = {}       # costly test number -> numbers of the cheap tests most like it
 SOFT = set()     # costly tests decided by their look-alikes alone
+# "share": the share rule and the insurance decide a never-run giant test (old behaviour).
+# "alike": only a failed look-alike (or a patched file it reads) selects it.
+GIANT_RULE = os.environ.get("BR_GIANT_RULE", "share")
 # On: a giant fixture-walking test runs its covering cases under a CPU allowance.
 GIANT_SLICE = os.environ.get("BR_GIANT_SLICE", "0") == "1"
 # What a giant test stopped at its allowance without a failure counts as: "drop" (passing)
@@ -120,18 +123,28 @@ def decide(selected, verdict, forced=(), ruled_out=0, capped=()):
     # what changed.
     soft = [n for n in expensive if n in SOFT and (n in ALIKE or SOFT_ALL)]
     hard = [n for n in expensive if n not in soft]
-    if policy.select_expensive(len(ran) + (ruled_out if ran else 0), len(failed)):
+    if GIANT_RULE == "alike":
+        # A giant test is selected when it reads a patched file or when one of the cheap
+        # tests most like it failed; otherwise it is left out.
+        failed_now = set(failed)
+        for n in hard:
+            if n in forced or failed_now & ALIKE.get(n, set()):
+                keep.add(n)
+        return_hard = []       # nothing left for the insurance to put back
+    elif policy.select_expensive(len(ran) + (ruled_out if ran else 0), len(failed)):
         keep |= set(hard)
+        return_hard = hard
     else:
         # A test that reads a patched file is never dropped on the others' evidence.
         keep |= set(hard) & set(forced)
+        return_hard = hard
     # Moderately costly tests: selected when one of the tests most like them failed
     # (or they read a patched file), left out otherwise.
     failed_set = set(failed)
     for n in soft + waiting:
         if (SOFT_FORCE and n in forced) or (SOFT_ALIKE and failed_set & ALIKE.get(n, set())):
             keep.add(n)
-    return keep, failed, ran, unknown, hard
+    return keep, failed, ran, unknown, return_hard
 
 
 def insure(keep, dropped, ms, risk):
@@ -309,7 +322,15 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
             else:
                 for s in filtered:
                     s[4], s[5] = s[7], None
-    specs.sort(key=lambda s: s[4])
+    if GIANT_RULE == "alike":
+        # The look-alikes of a giant that is not run go first: their verdicts decide it.
+        first = set()
+        for number, _ in expensive:
+            if number not in SOFT:
+                first.update(ALIKE.get(number) or ())
+        specs.sort(key=lambda s: (s[0] not in first, s[4]))
+    else:
+        specs.sort(key=lambda s: s[4])
     tests_spec = [tuple(s[:7]) for s in specs]
     if os.environ.get("BR_DEBUG") == commit:
         log(f"  plan: {len(specs)} to run, est {sum(s[4] for s in specs):.2f}s "
