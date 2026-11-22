@@ -124,6 +124,7 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
     """Decide what to run for one commit, and how much of each test."""
     specs = []
     expensive = []
+    capped = []
     plans = {}
     for bit, number in maps.bits(analysis.strong):
         full = cost_of.get(number, seconds[number]) * COST_SCALE
@@ -199,10 +200,16 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
                 cases = {"__dialects__": names}
                 estimate = full * (0.05 + len(names) / 34.0)
         if estimate >= policy.NEVER_RUN:
-            expensive.append((number, seconds[number]))
-            if full < policy.GIANT:
-                SOFT.add(number)
-            continue
+            if full < policy.GIANT and policy.SOFT_CAP > 0:
+                # A moderately costly test is run for a short while only: a failure in
+                # that time selects it, otherwise it is taken as passing.
+                capped.append(number)
+                estimate = min(estimate, policy.SOFT_CAP / SPEED)
+            else:
+                expensive.append((number, seconds[number]))
+                if full < policy.GIANT:
+                    SOFT.add(number)
+                continue
         specs.append([number, id_of[number], (5.0 + full * 25) * SPEED, seconds[number],
                       estimate, cases, 0, full])
     if not specs:
@@ -250,7 +257,7 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
                   if path.endswith(".py")}
     return {"key": commit, "root": SOURCE, "files": files, "pickle": analysis.pickle,
             "load_lines": load_lines,
-            "prior": prior, "tests": tests_spec, "expensive": expensive,
+            "prior": prior, "tests": tests_spec, "expensive": expensive, "capped": capped,
             "forced": maps.numbers(analysis.direct), "plans": plans,
             "speed": SPEED, "budget": 40.0, "run_all": RUN_ALL}
 

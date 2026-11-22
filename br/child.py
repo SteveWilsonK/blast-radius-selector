@@ -265,6 +265,8 @@ def run(job, out_fd):
     stop_all = False
     stop_code = 3
     probe = bool(job.get("probe"))
+    soft = set(job.get("capped", ()))
+    from .policy import SOFT_CAP as soft_cap
     need_state = False
     forced = set(job.get("forced", ()))
     import_cpu = 0.0
@@ -393,8 +395,9 @@ def run(job, out_fd):
             if _timeouts[0]:
                 # One test already ran out of time: give the rest far less rope.
                 limit = min(limit, 2.0 + 4.0 * info[number][1])
-            _capped[0] = bool(CAP) and CAP < limit
-            signal.setitimer(signal.ITIMER_PROF, CAP if _capped[0] else limit)
+            cap = soft_cap if number in soft else CAP
+            _capped[0] = bool(cap) and cap < limit
+            signal.setitimer(signal.ITIMER_PROF, cap if _capped[0] else limit)
 
         def finish(test, _state=state, _cases=cases, _result=result, union=union, module=module):
             _capped[0] = False
