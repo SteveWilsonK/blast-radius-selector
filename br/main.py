@@ -34,7 +34,7 @@ STATE = os.environ.get("BR_STATE", "1") == "1"   # compare loaded state for clas
 STATE_FILE = os.path.join(os.path.dirname(MAP), "state.bin")
 # Compare state only after a cheap candidate has failed: when the first few pass, the
 # commit is taken as clean without the comparison.
-LAZY_STATE = os.environ.get("BR_LAZY_STATE", "1") == "1"
+LAZY_STATE = os.environ.get("BR_LAZY_STATE", "0") == "1"
 STATE_MIN_TESTS = 25
 STATE_MIN_COST = 1.0
 EXP_DROP = set(filter(None, os.environ.get("BR_EXP_DROP", "test_execute_tpcds").split(",")))
