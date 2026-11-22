@@ -7,7 +7,7 @@ import os
 WORKER = 2.0
 MAX_WORKERS = 8
 # A test this costly to run here is never run: it is selected or left out on evidence.
-NEVER_RUN = float(os.environ.get("BR_NEVER_RUN", "5.0"))
+NEVER_RUN = float(os.environ.get("BR_NEVER_RUN", "0.5"))
 # Costly tests under this run cost are decided by their look-alikes alone; the ones
 # above it keep the share rule and the insurance.
 GIANT = 5.0
