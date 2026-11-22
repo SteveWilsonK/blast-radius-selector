@@ -11,6 +11,8 @@ NEVER_RUN = float(os.environ.get("BR_NEVER_RUN", "0.5"))
 # Costly tests under this run cost are decided by their look-alikes alone; the ones
 # above it keep the share rule and the insurance.
 GIANT = 5.0
+# Price of a CPU second once a commit has a failing test (0 = the same price as before one).
+SPEED_FAILED = float(os.environ.get("BR_SPEED_FAILED", "0"))
 # CPU seconds a moderately costly test is given before it is stopped and taken as passing
 # (0 = such tests are not run at all).
 SOFT_CAP = float(os.environ.get("BR_SOFT_CAP", "0"))
@@ -116,6 +118,10 @@ class Tracker:
         else:
             share = (self.failed + 0.2) / (self.ran + 1.0)
         price = self.price()
+        if self.failed and SPEED_FAILED > 0:
+            # A commit that already has a failing test pays for every unrun candidate
+            # it selects: checking is priced lower there.
+            price = SPEED_FAILED
         run = self.todo_cpu * price + share * blind
         if not self.ran:
             run += START_COST * price

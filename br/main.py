@@ -60,6 +60,8 @@ SOFT_ALIKE = os.environ.get("BR_SOFT_ALIKE", "1") == "1"
 # Off: reading a patched file no longer selects a moderately costly test by itself;
 # only a failed look-alike does.
 SOFT_FORCE = os.environ.get("BR_SOFT_FORCE", "1") == "1"
+# On: a never-run test without a look-alike list is left out too (off: the share rule).
+SOFT_ALL = os.environ.get("BR_SOFT_ALL", "0") == "1"
 
 
 def load_alike(tests):
@@ -93,12 +95,12 @@ def decide(selected, verdict, forced=(), ruled_out=0, capped=()):
     expensive = [n for n in selected if n not in verdict]
     # A costly test that was to get a short allowance but was never reached is decided
     # like one that is not run at all: by its look-alikes.
-    waiting = [n for n in unknown if n in capped and n in ALIKE]
+    waiting = [n for n in unknown if n in capped and (n in ALIKE or SOFT_ALL)]
     keep = set(failed) | (set(unknown) - set(waiting))
     # Tests the state comparison ruled out count as passed, but only alongside tests
     # that really ran: on their own they say nothing about a test that does read
     # what changed.
-    soft = [n for n in expensive if n in SOFT and n in ALIKE]
+    soft = [n for n in expensive if n in SOFT and (n in ALIKE or SOFT_ALL)]
     hard = [n for n in expensive if n not in soft]
     if policy.select_expensive(len(ran) + (ruled_out if ran else 0), len(failed)):
         keep |= set(hard)
@@ -109,7 +111,7 @@ def decide(selected, verdict, forced=(), ruled_out=0, capped=()):
     # (or they read a patched file), left out otherwise.
     failed_set = set(failed)
     for n in soft + waiting:
-        if (SOFT_FORCE and n in forced) or (SOFT_ALIKE and failed_set & ALIKE[n]):
+        if (SOFT_FORCE and n in forced) or (SOFT_ALIKE and failed_set & ALIKE.get(n, set())):
             keep.add(n)
     return keep, failed, ran, unknown, hard
 
