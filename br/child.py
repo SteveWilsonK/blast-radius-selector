@@ -91,7 +91,7 @@ class _Result(unittest.TestResult):
 
 _timeouts = [0]
 # Run cost left (seconds) above which a failed probe hands over to the state comparison.
-PROBE_REST = float(os.environ.get("BR_PROBE_REST", "0.3"))
+PROBE_REST = float(os.environ.get("BR_PROBE_REST", "0.0"))
 
 
 def _alarm(signum, frame):
