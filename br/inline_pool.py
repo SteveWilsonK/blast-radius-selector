@@ -7,6 +7,51 @@ import concurrent.futures
 import pickle
 
 PICKLE = False
+LAZY = False     # run each submitted call only when its result is asked for
+
+
+class _Lazy:
+    """A future whose work runs on the first call to result() or exception()."""
+
+    def __init__(self, fn, args, kwargs):
+        self._call = (fn, args, kwargs)
+        self._value = None
+        self._error = None
+
+    def _run(self):
+        if self._call is None:
+            return
+        fn, args, kwargs = self._call
+        self._call = None
+        try:
+            if PICKLE:
+                fn, args, kwargs = _copy((fn, args, kwargs))
+            self._value = _copy(fn(*args, **kwargs))
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException as error:  # noqa: BLE001 - a worker would send it back
+            if type(error).__name__ == "TestTimeout":
+                raise                      # the CPU limit of the test, not the call's own error
+            self._error = error
+
+    def result(self, timeout=None):
+        self._run()
+        if self._error is not None:
+            raise self._error
+        return self._value
+
+    def exception(self, timeout=None):
+        self._run()
+        return self._error
+
+    def done(self):
+        return True
+
+    def cancel(self):
+        return False
+
+    def add_done_callback(self, fn):
+        fn(self)
 
 
 def _copy(value):
@@ -19,6 +64,8 @@ class InlinePool:
             initializer(*_copy(initargs))
 
     def submit(self, fn, *args, **kwargs):
+        if LAZY:
+            return _Lazy(fn, args, kwargs)
         future = concurrent.futures.Future()
         try:
             if PICKLE:
@@ -43,9 +90,10 @@ class InlinePool:
         return False
 
 
-def install(use_pickle):
-    global PICKLE
+def install(use_pickle, lazy=False):
+    global PICKLE, LAZY
     PICKLE = use_pickle
+    LAZY = lazy
     concurrent.futures.ProcessPoolExecutor = InlinePool
     import concurrent.futures.process as process
 

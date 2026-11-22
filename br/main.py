@@ -52,6 +52,11 @@ RULED_OUT = {}   # commit -> candidates dropped because nothing they read change
 
 ALIKE = {}       # costly test number -> numbers of the cheap tests most like it
 SOFT = set()     # costly tests decided by their look-alikes alone
+# On: a giant fixture-walking test runs its covering cases under a CPU allowance.
+GIANT_SLICE = os.environ.get("BR_GIANT_SLICE", "0") == "1"
+# What a giant test stopped at its allowance without a failure counts as: "drop" (passing)
+# or "rule" (never run: the share rule and the insurance decide).
+GIANT_PARTIAL = os.environ.get("BR_GIANT_PARTIAL", "drop")
 JOBS = {}        # commit -> the job its candidates last ran as
 TRACK_HARD_ONLY = os.environ.get("BR_TRACK_HARD_ONLY", "0") == "1"
 TRACK_NO_DROPPED = os.environ.get("BR_TRACK_NO_DROPPED", "0") == "1"
@@ -103,7 +108,8 @@ def decide(selected, verdict, forced=(), ruled_out=0, capped=()):
     failed = [n for n in selected if verdict.get(n, (None,))[0] == 1]
     ran = [n for n in selected if verdict.get(n, (3,))[0] in (0, 1)]
     unknown = [n for n in selected if n in verdict and verdict[n][0] == 3]
-    expensive = [n for n in selected if n not in verdict]
+    expensive = [n for n in selected if n not in verdict
+                 or (GIANT_PARTIAL == "rule" and verdict[n][0] == 6)]
     # A costly test that was to get a short allowance but was never reached is decided
     # like one that is not run at all: by its look-alikes.
     waiting = [n for n in unknown if n in capped and (n in ALIKE or SOFT_ALL)]
@@ -163,6 +169,8 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
     expensive = []
     capped = []
     skipped = []
+    giant_cap = []
+    case_order = {}
     plans = {}
     for bit, number in maps.bits(analysis.strong):
         full = cost_of.get(number, seconds[number]) * COST_SCALE
@@ -237,7 +245,30 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
             if names and len(names) < 12:
                 cases = {"__dialects__": names}
                 estimate = full * (0.05 + len(names) / 34.0)
-        if SOFT_SKIP and policy.NEVER_RUN <= estimate < 5.0 and full < policy.GIANT:
+        sliced = False
+        if GIANT_SLICE and full >= policy.GIANT and maps.has_cases(bit):
+            # A giant test that walks fixture cases: run the cases that meet the change,
+            # cheapest first, under a CPU allowance. A failing case selects it; all of
+            # them passing clears it; running out of allowance leaves it undecided.
+            entry_ = maps.cases(bit)
+            need_ = analyzer.needs(analysis, bit)
+            if need_ is not None and "@body" not in entry_:
+                order = {}
+                for f, data in entry_.items():
+                    share = data.get("share")
+                    if not (data.get("tagged") and share) or f not in need_ or need_[f] == "changed":
+                        continue
+                    wanted_ = range(data["n"]) if need_[f] is None else need_[f]
+                    if wanted_:
+                        order[f] = sorted(wanted_, key=lambda i: (share[i] if i < len(share) else 0.0, i))
+                if order:
+                    case_order.update(order)
+                    giant_cap.append(number)
+                    estimate = min(estimate, policy.GIANT_BUDGET / max(SPEED, 0.1))
+                    sliced = True
+        if sliced:
+            pass
+        elif SOFT_SKIP and policy.NEVER_RUN <= estimate < 5.0 and full < policy.GIANT:
             # Planned exactly as a test that runs (order, grouping, stop rule), but the
             # child leaves it out; it is then decided like any never-run costly test.
             skipped.append(number)
@@ -304,6 +335,7 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
     return {"key": commit, "root": SOURCE, "files": files, "pickle": analysis.pickle,
             "load_lines": load_lines,
             "prior": prior, "tests": tests_spec, "capped": capped, "skip": skipped,
+            "giant_cap": giant_cap, "case_order": case_order, "giant_budget": policy.GIANT_BUDGET,
             # The stop rule in the child counts on costly tests being selected; the
             # moderately costly ones are decided apart, so it is not told about them.
             "expensive": told(expensive, id_of, set(maps.numbers(analysis.direct))),

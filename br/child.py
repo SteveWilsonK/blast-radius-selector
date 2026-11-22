@@ -25,6 +25,7 @@ class TestTimeout(BaseException):
 # passing (0 = no cap).
 CAP = float(os.environ.get("BR_CAP", "0"))
 _capped = [False]
+_cap_hit = [False]
 # Price of a CPU second when, after a commit's first failure, each remaining candidate is
 # judged on its own (0 = off: the remaining candidates are run or left as one block).
 PICK = float(os.environ.get("BR_PICK", "0"))
@@ -69,6 +70,7 @@ class _Result(unittest.TestResult):
     def addError(self, test, err):
         if _capped[0] and err and err[0] is TestTimeout:
             _timeouts[0] -= 1     # stopped at the cap, not hung: counts as a pass
+            _cap_hit[0] = True
             return
         self._mark(test)
         self._note(test, err)
@@ -91,6 +93,7 @@ class _Result(unittest.TestResult):
         if err is not None:
             if _capped[0] and err[0] is TestTimeout:
                 _timeouts[0] -= 1     # stopped at the cap inside a sub-test: a pass
+                _cap_hit[0] = True
                 return
             self._mark(test)
             self._note(subtest, err)
@@ -203,7 +206,7 @@ def run(job, out_fd):
                     del sys.modules[name]
         elif os.environ.get("BR_REPORT"):
             out.write(json.dumps(["swap", len(swaps), 0.0]) + "\n")
-    inline_pool.install(job["pickle"])
+    inline_pool.install(job["pickle"], lazy=bool(job.get("giant_cap")))
     overlay.install(root, job["files"])
     if job["files"]:
         # Tests that start another Python must meet the same patched files there.
@@ -220,18 +223,32 @@ def run(job, out_fd):
     signal.signal(signal.SIGPROF, _alarm)
 
     active = {"cases": None}
-    if any(t[5] is not None for t in job["tests"]):
+    case_order = job.get("case_order") or {}
+    if case_order or any(t[5] is not None for t in job["tests"]):
         try:
             import tests.helpers as helpers
 
             def wrap(original):
                 def loader(filename):
                     cases = active["cases"]
+                    seq = case_order.get(filename)
                     if cases is None:
-                        yield from original(filename)
+                        allowed = None
+                    else:
+                        # A test cut down by statement (see slicer) loads fixtures in full.
+                        allowed = cases.get(filename, None if "@body" in cases else ())
+                    if seq and allowed != "changed":
+                        # Cheapest cases first, so a test stopped early has seen the most
+                        # cases for its CPU; cases outside the list keep their file order.
+                        items = list(original(filename))
+                        listed = set(seq)
+                        for index in seq:
+                            if index < len(items) and (allowed is None or index in allowed):
+                                yield items[index]
+                        for index, item in enumerate(items):
+                            if index not in listed and (allowed is None or index in allowed):
+                                yield item
                         return
-                    # A test cut down by statement (see slicer) loads fixtures in full.
-                    allowed = cases.get(filename, None if "@body" in cases else ())
                     if allowed is None:
                         yield from original(filename)
                         return
@@ -278,6 +295,8 @@ def run(job, out_fd):
     skip = set(job.get("skip", ()))
     unrun_here = set()
     soft = set(job.get("capped", ()))
+    giant = set(job.get("giant_cap", ()))
+    giant_budget = float(job.get("giant_budget") or 0.0)
     from .policy import SOFT_CAP as soft_cap
     need_state = False
     forced = set(job.get("forced", ()))
@@ -431,7 +450,8 @@ def run(job, out_fd):
             if _timeouts[0]:
                 # One test already ran out of time: give the rest far less rope.
                 limit = min(limit, 2.0 + 4.0 * info[number][1])
-            cap = soft_cap if number in soft else CAP
+            cap = giant_budget if number in giant else (soft_cap if number in soft else CAP)
+            _cap_hit[0] = False
             _capped[0] = bool(cap) and cap < limit
             signal.setitimer(signal.ITIMER_PROF, cap if _capped[0] else limit)
 
@@ -450,7 +470,9 @@ def run(job, out_fd):
                 return
             cpu = (time.process_time() - _state["t0"]) * SLOW
             failed = 1 if case.id() in _result.bad else 0
-            out.write(json.dumps([number, failed, round(cpu, 4)]) + "\n")
+            # A giant test stopped at its CPU allowance with no failure so far: 6.
+            status = 6 if (number in giant and _cap_hit[0] and not failed) else failed
+            out.write(json.dumps([number, status, round(cpu, 4)]) + "\n")
             _state["reported"] = _state.get("reported", 0) + 1
             recorded, run_cost = info[number]
             tracker.record(recorded, run_cost, failed, cpu)
