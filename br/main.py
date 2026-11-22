@@ -56,9 +56,9 @@ JOBS = {}        # commit -> the job its candidates last ran as
 TRACK_HARD_ONLY = os.environ.get("BR_TRACK_HARD_ONLY", "0") == "1"
 TRACK_NO_DROPPED = os.environ.get("BR_TRACK_NO_DROPPED", "0") == "1"
 # On: costly tests are planned as before the never-run rule and only left out when run.
-SOFT_SKIP = os.environ.get("BR_SOFT_SKIP", "0") == "1"
+SOFT_SKIP = os.environ.get("BR_SOFT_SKIP", "1") == "1"
 # With SOFT_SKIP: a slice of one of the two giant tests is not run either.
-SKIP_GIANT = os.environ.get("BR_SKIP_GIANT", "0") == "1"
+SKIP_GIANT = os.environ.get("BR_SKIP_GIANT", "1") == "1"
 # Commits with at most this many failing tests get each of them run again alone (0 = off).
 RECHECK = int(os.environ.get("BR_RECHECK", "0"))
 # On: tests that failed in this batch are run once on the unpatched code; the ones that
