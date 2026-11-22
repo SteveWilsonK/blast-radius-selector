@@ -77,7 +77,10 @@ def load_alike(tests):
         log(f"look-alike file unreadable ({error!r})")
 
 
-def decide(selected, verdict, forced=(), ruled_out=0):
+CAPPED = {}      # commit -> costly tests given a short CPU allowance there
+
+
+def decide(selected, verdict, forced=(), ruled_out=0, capped=()):
     """From what was run to what is selected.
 
     verdict: number -> (status, cpu) for the tests handed to a child; status 0 passed,
@@ -88,7 +91,10 @@ def decide(selected, verdict, forced=(), ruled_out=0):
     ran = [n for n in selected if verdict.get(n, (3,))[0] in (0, 1)]
     unknown = [n for n in selected if n in verdict and verdict[n][0] == 3]
     expensive = [n for n in selected if n not in verdict]
-    keep = set(failed) | set(unknown)
+    # A costly test that was to get a short allowance but was never reached is decided
+    # like one that is not run at all: by its look-alikes.
+    waiting = [n for n in unknown if n in capped and n in ALIKE]
+    keep = set(failed) | (set(unknown) - set(waiting))
     # Tests the state comparison ruled out count as passed, but only alongside tests
     # that really ran: on their own they say nothing about a test that does read
     # what changed.
@@ -102,7 +108,7 @@ def decide(selected, verdict, forced=(), ruled_out=0):
     # Moderately costly tests: selected when one of the tests most like them failed
     # (or they read a patched file), left out otherwise.
     failed_set = set(failed)
-    for n in soft:
+    for n in soft + waiting:
         if (SOFT_FORCE and n in forced) or (SOFT_ALIKE and failed_set & ALIKE[n]):
             keep.add(n)
     return keep, failed, ran, unknown, hard
@@ -256,6 +262,7 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
     if prior is not None and policy.Tracker(
             [(t[0], t[3], t[4]) for t in tests_spec], expensive, SPEED, prior).should_stop():
         return None  # selecting it unrun is cheaper than checking
+    CAPPED[commit] = set(capped)
     # Lines of the patched files that sqlglot runs while it loads: a function that
     # ran then cannot simply be given new code (see swap.py).
     load_lines = {path: sorted(maps.self_import.get(path) or ()) for path in files
@@ -524,7 +531,7 @@ def main():
             swapped = verdict.pop("swap", None)
             forced = maps.numbers(analysis.direct) if analysis is not None else ()
             keep, failed, ran, unknown, expensive = decide(
-                selected, verdict, forced, RULED_OUT.get(commit, 0))
+                selected, verdict, forced, RULED_OUT.get(commit, 0), CAPPED.get(commit, ()))
             left_out = [n for n in expensive if n not in keep]
             if left_out:
                 # Unrun candidates say nothing about the costly tests: the share of

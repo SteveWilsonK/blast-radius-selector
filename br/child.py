@@ -82,6 +82,9 @@ class _Result(unittest.TestResult):
 
     def addSubTest(self, test, subtest, err):
         if err is not None:
+            if _capped[0] and err[0] is TestTimeout:
+                _timeouts[0] -= 1     # stopped at the cap inside a sub-test: a pass
+                return
             self._mark(test)
             self._note(subtest, err)
 
