@@ -27,7 +27,7 @@ CAP = float(os.environ.get("BR_CAP", "0"))
 # On: when function code cannot be swapped, reload only the patched modules and the
 # modules that import them (fewer than PARTIAL_MAX), not all of sqlglot.
 PARTIAL_RELOAD = os.environ.get("BR_PARTIAL", "1") == "1"
-PARTIAL_MAX = int(os.environ.get("BR_PARTIAL_MAX", "20"))
+PARTIAL_MAX = int(os.environ.get("BR_PARTIAL_MAX", "40"))
 # On: the per-test cap holds only until the commit's first failure.
 CAP_BEFORE = os.environ.get("BR_CAP_BEFORE", "0") == "1"
 _capped = [False]
@@ -37,7 +37,7 @@ _ignore = [False]
 DIAG_BODIES = os.environ.get("BR_DIAG", "") == "bodies"
 # CPU seconds one commit's child may spend before it stops running tests (0 = no limit).
 COMMIT_BUDGET = float(os.environ.get("BR_COMMIT_BUDGET", "0.15"))
-STAKES_K = float(os.environ.get("BR_STAKES_K", "0.4"))
+STAKES_K = float(os.environ.get("BR_STAKES_K", "0.36"))
 CHEAP_FAIL = os.environ.get("BR_CHEAP_FAIL", "1") == "1"
 STATE_STAKES = float(os.environ.get("BR_STATE_STAKES", "0"))
 # On: the flat budget holds until the first failure, k x stakes after it.
