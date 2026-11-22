@@ -44,6 +44,12 @@ class Analysis:
 
 
 FIXTURES = "tests/fixtures/"
+FIXTURE_COMMENTS = os.environ.get("BR_FIXTURE_COMMENTS", "0") == "1"
+
+
+def _cases_text(text):
+    """A fixture file as tests/helpers.py sees it (its _filter_comments)."""
+    return "\n".join(line for line in text.splitlines() if line and not line.startswith("--"))
 # An Enum's own tables, which change with any member.
 ENUM_INNARDS = ("_member_map_", "_value2member_map_", "_hashable_values_", "_member_names_",
                 "_unhashable_values_", "_value_repr_")
@@ -352,6 +358,16 @@ class Analyzer:
         self._state = state
         for fp in patchlib.parse(patch_text):
             paths = [p for p in {fp.old_path, fp.new_path} if p]
+            if FIXTURE_COMMENTS and fp.old_path and fp.old_path == fp.new_path and not fp.binary \
+                    and fp.old_path.startswith(FIXTURES) and fp.old_path.endswith(".sql"):
+                # The fixture loaders drop empty lines and lines starting with "--" before
+                # anything else: a patch that only touches such lines changes no case.
+                old_text = self.text(fp.old_path)
+                new_text = patchlib.apply(old_text, fp) if old_text is not None else None
+                if new_text is not None and _cases_text(old_text) == _cases_text(new_text):
+                    a.notes.append(f"fixture-comment:{fp.old_path}")
+                    a.data_changed.append((fp.old_path, new_text))
+                    continue
             if any(os.path.basename(p) in ("conftest.py", "pytest.ini", "tox.ini") for p in paths):
                 # pytest itself reads these; the in-process runner cannot stand in for it.
                 a.everything = True

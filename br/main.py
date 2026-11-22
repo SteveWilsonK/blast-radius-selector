@@ -52,6 +52,8 @@ RULED_OUT = {}   # commit -> candidates dropped because nothing they read change
 
 ALIKE = {}       # costly test number -> numbers of the cheap tests most like it
 SOFT = set()     # costly tests decided by their look-alikes alone
+# Measuring builds only (never the final): "main", "state" or "bodies" does that part twice.
+DIAG = os.environ.get("BR_DIAG", "")
 # "share": the share rule and the insurance decide a never-run giant test (old behaviour).
 # "alike": only a failed look-alike (or a patched file it reads) selects it.
 GIANT_RULE = os.environ.get("BR_GIANT_RULE", "share")
@@ -431,6 +433,9 @@ def refine(plans, texts, analyzer, maps, cost_of, seconds, started, count, only=
         where[commit] = index
     if not jobs:
         return
+    if DIAG == "state":
+        # Measuring build: every state comparison done twice (the twin's answer is unused).
+        jobs = jobs + [dict(job, key=job["key"] + "#twin") for job in jobs]
     deadline = started + max(20.0, 1.5 * count)
     try:
         results = run_guarded(jobs, 1, deadline, [], log)
@@ -511,6 +516,17 @@ def main():
             analysis = None
         plans.append((commit, selected, analysis))
 
+    if DIAG == "main":
+        # Measuring build: the main process's own work (maps, analysis) done twice.
+        maps_again = Maps(MAP, tests)
+        analyzer_again = Analyzer(maps_again, SOURCE, os.path.join(os.path.dirname(MAP), "refs.bin"),
+                                  os.path.join(os.path.dirname(MAP), "cond.bin"))
+        json.load(open(os.path.join(DATA, "tests.json")))
+        for text in texts.values():
+            try:
+                analyzer_again.analyze(text)
+            except Exception:  # noqa: BLE001
+                pass
     log(f"LEDGER main-analysis {time.process_time():.3f}")
     cost_of = maps.cost
     state_on = STATE and os.path.exists(STATE_FILE) and maps.tracked and not NO_EXEC

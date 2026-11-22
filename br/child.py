@@ -26,6 +26,10 @@ class TestTimeout(BaseException):
 CAP = float(os.environ.get("BR_CAP", "0"))
 _capped = [False]
 _cap_hit = [False]
+_ignore = [False]
+DIAG_BODIES = os.environ.get("BR_DIAG", "") == "bodies"
+# CPU seconds one commit's child may spend before it stops running tests (0 = no limit).
+COMMIT_BUDGET = float(os.environ.get("BR_COMMIT_BUDGET", "0"))
 _allowed = [False]
 # After a commit's first failure a test may use at most its recorded seconds times this
 # in CPU before it is abandoned and selected unrun (0 = no such allowance).
@@ -94,6 +98,8 @@ class _Result(unittest.TestResult):
         self._mark(test)
 
     def addSubTest(self, test, subtest, err):
+        if err is not None and _ignore[0]:
+            return
         if err is not None:
             if _capped[0] and err[0] is TestTimeout:
                 _timeouts[0] -= 1     # stopped at the cap inside a sub-test: a pass
@@ -297,6 +303,7 @@ def run(job, out_fd):
     stop_code = 3
     probe = bool(job.get("probe"))
     skip = set(job.get("skip", ()))
+    started_at = time.process_time()
     unrun_here = set()
     soft = set(job.get("capped", ()))
     giant = set(job.get("giant_cap", ()))
@@ -408,6 +415,21 @@ def run(job, out_fd):
             except BaseException:  # noqa: BLE001
                 out.write(json.dumps([number, 1, 0.0]) + "\n")
                 continue
+            if DIAG_BODIES:
+                # Measuring build: the test's body runs twice; only the first run counts.
+                def twice(_body=getattr(case, method)):
+                    _body()
+                    _ignore[0] = True
+                    try:
+                        _body()
+                    except TestTimeout:
+                        raise
+                    except BaseException:  # noqa: BLE001
+                        pass
+                    finally:
+                        _ignore[0] = False
+
+                setattr(case, method, twice)
             cases.append((number, case, limit))
         # Drive the suite by hand so each test is timed and reported as it ends, while
         # class and module fixtures still run once (TestSuite.run handles them).
@@ -418,6 +440,12 @@ def run(job, out_fd):
                 raise NeedState()
             if not job.get("run_all") and time.process_time() > budget:
                 raise OutOfBudget()
+            if COMMIT_BUDGET > 0 and not job.get("run_all") and time.process_time() - started_at > COMMIT_BUDGET:
+                # This commit has had its CPU: what is left is selected if a failure
+                # was seen and taken as passing if none was.
+                if tracker.failed:
+                    raise OutOfBudget()
+                raise SkipRest()
             upcoming = _cases[_state["i"]][0]
             # Enough clean runs: the rest is taken as passing, however many are left
             # (before the cost rule, which would select a large rest unrun).
