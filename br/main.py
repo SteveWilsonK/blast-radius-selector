@@ -482,7 +482,7 @@ def refine(plans, texts, analyzer, maps, cost_of, seconds, started, count, only=
 def main():
     global SPEED
     started = time.time()
-    if os.environ.get("BR_PIN", "1") == "1":
+    if os.environ.get("BR_PIN", "0") == "1":
         # One process works at a time (the others wait in read or select): keep them
         # all on one CPU so caches stay warm and nothing migrates.
         try:
