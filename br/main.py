@@ -50,6 +50,9 @@ RULED_OUT = {}   # commit -> candidates dropped because nothing they read change
 
 ALIKE = {}       # costly test number -> numbers of the cheap tests most like it
 SOFT = set()     # costly tests decided by their look-alikes alone
+UNRUNNABLE = {}  # commit -> its moderately costly candidates, when none of its candidates ran
+# On: such candidates are left out (no look-alike could fail), unless they read a patched file.
+SOFT_BLIND = os.environ.get("BR_SOFT_BLIND", "0") == "1"
 # Off: a moderately costly test is selected only when it reads a patched file.
 SOFT_ALIKE = os.environ.get("BR_SOFT_ALIKE", "1") == "1"
 
@@ -203,6 +206,8 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
         specs.append([number, id_of[number], (5.0 + full * 25) * SPEED, seconds[number],
                       estimate, cases, 0, full])
     if not specs:
+        # Nothing here is cheap enough to run: remember the moderately costly ones.
+        UNRUNNABLE[commit] = {number for number, _ in expensive if number in SOFT}
         return None
     # Tests of one class that load fixtures in full keep apart from those that do not,
     # when the filtered ones save enough to pay for a second class set-up.
@@ -524,6 +529,10 @@ def main():
             if swapped:
                 note += f", swapped {swapped[0]}"
             selected = sorted(keep)
+        elif SOFT_BLIND and UNRUNNABLE.get(commit) and analysis is not None:
+            direct = set(maps.numbers(analysis.direct))
+            selected = [n for n in selected if n not in UNRUNNABLE[commit] or n in direct]
+            note = "costly candidates left out unrun"
         selected = sorted(set(selected))
         cost, workers = split(selected, ms)
         # Idle time on the less busy workers is free: spend it on the candidates that
