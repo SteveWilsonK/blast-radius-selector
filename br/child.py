@@ -29,7 +29,7 @@ _cap_hit = [False]
 _ignore = [False]
 DIAG_BODIES = os.environ.get("BR_DIAG", "") == "bodies"
 # CPU seconds one commit's child may spend before it stops running tests (0 = no limit).
-COMMIT_BUDGET = float(os.environ.get("BR_COMMIT_BUDGET", "0"))
+COMMIT_BUDGET = float(os.environ.get("BR_COMMIT_BUDGET", "0.3"))
 _allowed = [False]
 # After a commit's first failure a test may use at most its recorded seconds times this
 # in CPU before it is abandoned and selected unrun (0 = no such allowance).
