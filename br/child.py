@@ -317,12 +317,23 @@ def run(job, out_fd):
         # so every registry they fill holds the new classes before any test runs.
         from importlib import import_module as _load_again
 
-        for name in _reimport[0]:
-            try:
+        names, _reimport[0] = _reimport[0], None
+        try:
+            # Registries keep classes by name: drop those of the reloaded modules first,
+            # so nothing old is found if a module no longer defines them.
+            registry = getattr(sys.modules.get("sqlglot.dialects.dialect"), "Dialect", None)
+            classes = getattr(registry, "_classes", None)
+            if isinstance(classes, dict):
+                for key, value in list(classes.items()):
+                    if getattr(value, "__module__", None) in names:
+                        del classes[key]
+            for name in names:
                 _load_again(name)
-            except BaseException:  # noqa: BLE001 - the test that imports it will fail too
-                pass
-        _reimport[0] = None
+        except BaseException:  # noqa: BLE001
+            # A patched module that cannot load must fail exactly as on a fresh start.
+            for name in list(sys.modules):
+                if name in ("sqlglot", "tests") or name.startswith(("sqlglot.", "tests.")):
+                    del sys.modules[name]
     if job["files"]:
         # Tests that start another Python must meet the same patched files there.
         try:
