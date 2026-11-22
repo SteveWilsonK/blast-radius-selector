@@ -14,7 +14,7 @@ GIANT = 5.0
 # CPU seconds (on the machine the selector runs on) a giant test's covering cases get.
 GIANT_BUDGET = float(os.environ.get("BR_GIANT_BUDGET", "3.0"))
 # Price of a CPU second once a commit has a failing test (0 = the same price as before one).
-SPEED_FAILED = float(os.environ.get("BR_SPEED_FAILED", "0.5"))
+SPEED_FAILED = float(os.environ.get("BR_SPEED_FAILED", "0.001"))
 # CPU seconds a moderately costly test is given before it is stopped and taken as passing
 # (0 = such tests are not run at all).
 SOFT_CAP = float(os.environ.get("BR_SOFT_CAP", "0"))
