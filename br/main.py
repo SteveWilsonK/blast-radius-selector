@@ -72,7 +72,7 @@ SOFT_ALIKE = os.environ.get("BR_SOFT_ALIKE", "1") == "1"
 # only a failed look-alike does.
 SOFT_FORCE = os.environ.get("BR_SOFT_FORCE", "1") == "1"
 # On: a never-run test without a look-alike list is left out too (off: the share rule).
-SOFT_ALL = os.environ.get("BR_SOFT_ALL", "0") == "1"
+SOFT_ALL = os.environ.get("BR_SOFT_ALL", "1") == "1"
 
 
 def load_alike(tests):
