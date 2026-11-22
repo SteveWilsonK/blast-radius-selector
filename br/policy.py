@@ -129,6 +129,20 @@ class Tracker:
             run += START_COST * price
         return blind <= run
 
+    def stakes(self):
+        """Seconds of score that verifying the unrun candidates can still save: with a
+        failure, the packed cost of selecting them unrun on top of what is selected
+        anyway (0 when they fit in idle room); before one, the packed cost of
+        selecting every candidate."""
+        base_sim, base_max = self.fail_sim, self.fail_max
+        if self.expensive_selected():
+            base_sim += self.exp_sim
+            base_max = max(base_max, self.exp_max)
+        with_rest = bound(base_sim + self.todo_sim, max(base_max, self.todo_max))
+        if self.failed:
+            return with_rest - bound(base_sim, base_max)
+        return with_rest
+
     def price(self):
         """CPU seconds a second of run cost takes here: what the tests run so far in
         this child really took, leaning on the given estimate until enough has run."""

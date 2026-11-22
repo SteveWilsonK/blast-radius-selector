@@ -31,6 +31,9 @@ _ignore = [False]
 DIAG_BODIES = os.environ.get("BR_DIAG", "") == "bodies"
 # CPU seconds one commit's child may spend before it stops running tests (0 = no limit).
 COMMIT_BUDGET = float(os.environ.get("BR_COMMIT_BUDGET", "0.3"))
+STAKES_K = float(os.environ.get("BR_STAKES_K", "1.0"))
+# On: the flat budget holds until the first failure, k x stakes after it.
+STAKES_AFTER = os.environ.get("BR_STAKES_AFTER", "1") == "1"
 _allowed = [False]
 # After a commit's first failure a test may use at most its recorded seconds times this
 # in CPU before it is abandoned and selected unrun (0 = no such allowance).
@@ -460,7 +463,15 @@ def run(job, out_fd):
                 raise NeedState()
             if not job.get("run_all") and time.process_time() > budget:
                 raise OutOfBudget()
-            if COMMIT_BUDGET > 0 and not job.get("run_all") and time.process_time() - started_at > COMMIT_BUDGET:
+            if (STAKES_K > 0 and not job.get("run_all") and (tracker.failed or not STAKES_AFTER)
+                    and time.process_time() - started_at > STAKES_K * tracker.stakes()):
+                # One CPU second costs one score second: stop once the CPU spent here
+                # passes k times what verifying the rest could still save.
+                if tracker.failed:
+                    raise OutOfBudget()
+                raise SkipRest()
+            if (COMMIT_BUDGET > 0 and not job.get("run_all") and not (STAKES_AFTER and tracker.failed)
+                    and time.process_time() - started_at > COMMIT_BUDGET):
                 # This commit has had its CPU: what is left is selected if a failure
                 # was seen and taken as passing if none was.
                 if tracker.failed:
