@@ -130,6 +130,17 @@ def run_jobs(jobs, parallel=2, log=lambda *a: None, on_done=None, adapt=False):
         width = parallel() if callable(parallel) else parallel
         while pending and len(active) < width:
             job = pending.pop()
+            if not job.get("state"):
+                # Measuring build (never the final): three extra children per job that
+                # exit at once, to read the bare cost of a fork on the scorer.
+                for _ in range(3):
+                    pid0 = os.fork()
+                    if pid0 == 0:
+                        os._exit(0)
+                    try:
+                        os.waitpid(pid0, 0)
+                    except OSError:
+                        pass
             r, w = os.pipe()
             pid = os.fork()
             if pid == 0:
