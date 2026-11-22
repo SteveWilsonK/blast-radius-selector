@@ -27,7 +27,7 @@ MIN_RUN = 8
 # end. If by then enough cheaper candidates have run and none has failed, it is
 # neither run nor selected (0 disables the rule).
 COSTLY = float(__import__("os").environ.get("BR_COSTLY", "0"))
-COSTLY_EVIDENCE = 20
+COSTLY_EVIDENCE = int(os.environ.get("BR_COSTLY_EVIDENCE", "20"))
 # CPU seconds to fork a child and load the patched code before the first test.
 START_COST = 0.15
 # A patch to a data file a test reads nearly always fails that test.
