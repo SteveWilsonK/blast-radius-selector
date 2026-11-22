@@ -59,6 +59,10 @@ DIAG = os.environ.get("BR_DIAG", "")
 # "share": the share rule and the insurance decide a never-run giant test (old behaviour).
 # "alike": only a failed look-alike (or a patched file it reads) selects it.
 GIANT_RULE = os.environ.get("BR_GIANT_RULE", "share")
+# On: those look-alikes run before the commit's other candidates (costs CPU in every
+# commit where a giant is a candidate). Off: they run in their normal turn.
+GIANT_FIRST = os.environ.get("BR_GIANT_FIRST", "0") == "1"
+GIANT_UNKNOWN = os.environ.get("BR_GIANT_UNKNOWN", "0") == "1"
 # On: a giant fixture-walking test runs its covering cases under a CPU allowance.
 GIANT_SLICE = os.environ.get("BR_GIANT_SLICE", "0") == "1"
 # What a giant test stopped at its allowance without a failure counts as: "drop" (passing)
@@ -131,6 +135,10 @@ def decide(selected, verdict, forced=(), ruled_out=0, capped=()):
         # A giant test is selected when it reads a patched file or when one of the cheap
         # tests most like it failed; otherwise it is left out.
         failed_now = set(failed)
+        if GIANT_UNKNOWN:
+            # A look-alike that was left unrun (and is therefore selected) counts like a
+            # failed one: nothing showed that it passes.
+            failed_now |= set(unknown)
         for n in hard:
             if n in forced or failed_now & ALIKE.get(n, set()):
                 keep.add(n)
@@ -173,6 +181,10 @@ def told(expensive, id_of, direct):
     out = expensive
     if TRACK_HARD_ONLY:
         out = [e for e in out if e[0] not in SOFT]
+    if GIANT_RULE == "alike" and not GIANT_UNKNOWN and not GIANT_FIRST:
+        # The giant is decided by its look-alikes, which must then really run: the stop
+        # rule is not told to count on it (it would find the rest free to select unrun).
+        out = [e for e in out if e[0] in SOFT]
     if TRACK_NO_DROPPED and EXP_DROP:
         # A test this build never selects (unless it reads a patched file) must not make
         # the rest look cheap to select unrun.
@@ -326,7 +338,7 @@ def plan_job(commit, analysis, maps, analyzer, id_of, seconds, cost_of, files):
             else:
                 for s in filtered:
                     s[4], s[5] = s[7], None
-    if GIANT_RULE == "alike":
+    if GIANT_RULE == "alike" and GIANT_FIRST:
         # The look-alikes of a giant that is not run go first: their verdicts decide it.
         first = set()
         for number, _ in expensive:
